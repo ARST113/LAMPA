@@ -16,6 +16,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONException
 import org.json.JSONObject
+import java.util.Locale
 import top.rootu.lampa.browser.Browser
 import top.rootu.lampa.channels.LampaChannels
 import top.rootu.lampa.channels.LampaChannels.updateChanByName
@@ -364,7 +365,7 @@ class AndroidJS(private val mainActivity: MainActivity, private val browser: Bro
                     headers.putSafe("Content-Type", contentType)
                 }
             }
-            injectLampaClientHeaders(headers)
+            injectLampaClientHeaders(url, headers)
             val finalRequestContent = requestContent
             val finalHeaders = headers
 
@@ -607,14 +608,16 @@ class AndroidJS(private val mainActivity: MainActivity, private val browser: Bro
         return store.all.toString()
     }
 
-    private fun injectLampaClientHeaders(headers: JSONObject) {
+    private fun injectLampaClientHeaders(url: String, headers: JSONObject) {
+        if (!AppAttestation.shouldInjectClientHeaders(url, MainActivity.LAMPA_URL)) return
+
         AppAttestation.buildClientHeaders(mainActivity).forEach { (key, value) ->
-            headers.putSafe(key, value)
+            headers.putIfAbsentIgnoreCase(key, value)
         }
 
         val referer = MainActivity.LAMPA_URL.trim().trimEnd('/')
         if (referer.isNotEmpty()) {
-            headers.putSafe("Referer", referer)
+            headers.putIfAbsentIgnoreCase("Referer", referer)
         }
 
         debugLog(
@@ -625,6 +628,20 @@ class AndroidJS(private val mainActivity: MainActivity, private val browser: Bro
                 "Referer=$referer, " +
                 "${AppAttestation.HEADER_CERT_SHA256}=${AppAttestation.signingCertSha256(mainActivity)}"
         )
+    }
+
+    private fun JSONObject.putIfAbsentIgnoreCase(key: String, value: Any) {
+        if (hasIgnoreCase(key)) return
+        putSafe(key, value)
+    }
+
+    private fun JSONObject.hasIgnoreCase(key: String): Boolean {
+        val needle = key.lowercase(Locale.ROOT)
+        val it = keys()
+        while (it.hasNext()) {
+            if (it.next().lowercase(Locale.ROOT) == needle) return true
+        }
+        return false
     }
 
     private fun JSONObject.putSafe(key: String, value: Any) = try {
