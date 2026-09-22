@@ -72,9 +72,8 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: |
-            APK="$(find app/build/outputs/apk/lite/debug -name '*.apk' | head -1)"
             adb logcat -c
-            adb install -r "$APK"
+            adb install -r "$(find app/build/outputs/apk/lite/debug -name '*.apk' | head -1)"
             adb shell am force-stop top.rootu.lampa
             adb shell am start -W -n top.rootu.lampa/.MainActivity
             sleep 12
