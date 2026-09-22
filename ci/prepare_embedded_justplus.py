@@ -35,6 +35,9 @@ write("settings.gradle", settings)
 app_gradle = read("app/build.gradle")
 app_gradle = re.sub(r"compileSdk\s+34", "compileSdk 36", app_gradle, count=1)
 app_gradle = re.sub(r"minSdkVersion\s+16", "minSdkVersion 23", app_gradle, count=1)
+app_gradle = app_gradle.replace("sourceCompatibility JavaVersion.VERSION_1_8", "sourceCompatibility JavaVersion.VERSION_17")
+app_gradle = app_gradle.replace("targetCompatibility JavaVersion.VERSION_1_8", "targetCompatibility JavaVersion.VERSION_17")
+app_gradle = app_gradle.replace('jvmTarget = "1.8"', 'jvmTarget = "17"')
 if "implementation project(':justplus')" not in app_gradle:
     marker = "dependencies {"
     pos = app_gradle.index(marker) + len(marker)
