@@ -71,18 +71,7 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: |
-            adb logcat -c
-            adb install -r "$(find app/build/outputs/apk/lite/debug -name '*.apk' | head -1)"
-            adb shell am force-stop top.rootu.lampa
-            adb shell am start -W -n top.rootu.lampa/.MainActivity
-            sleep 12
-            echo "=== Current activity ==="
-            adb shell dumpsys activity activities | grep -E "mResumedActivity|top.rootu.lampa" | head -30 || true
-            echo "=== Fatal log excerpt ==="
-            adb logcat -d -v time | grep -E "FATAL EXCEPTION|AndroidRuntime|top.rootu.lampa|NoSuchMethodError|NoClassDefFoundError|ClassNotFoundException" | tail -250 || true
-            adb shell dumpsys activity activities | grep -q "top.rootu.lampa/.CrashActivity" && { echo "LAMPA entered CrashActivity"; exit 1; } || true
-            adb shell pidof top.rootu.lampa >/dev/null || { echo "LAMPA process is not alive"; exit 1; }
+          script: bash ci/smoke_android.sh
 
       - name: Upload APK
         if: success()
