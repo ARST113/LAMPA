@@ -128,7 +128,7 @@ dependencies {
     implementation "androidx.core:core:$androidxCoreVersion"
     implementation 'androidx.appcompat:appcompat:1.7.1'
     implementation 'androidx.preference:preference:1.2.1'
-    implementation 'com.squareup.okhttp3:okhttp:5.3.2'
+    implementation 'com.squareup.okhttp3:okhttp:4.10.0'
     implementation 'com.sigpwned:chardet4j:78.1.0'
     implementation 'com.github.bumptech.glide:glide:4.16.0'
     implementation 'com.google.zxing:core:3.5.3'
