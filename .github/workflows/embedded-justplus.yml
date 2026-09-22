@@ -66,7 +66,8 @@ jobs:
         if: success()
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: 37
+          target: google_apis_ps16k
           arch: x86_64
           profile: pixel_6
           disable-animations: true
