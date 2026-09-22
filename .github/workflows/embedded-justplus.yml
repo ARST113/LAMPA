@@ -50,7 +50,9 @@ jobs:
           "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0"
 
       - name: Prepare embedded player modules
-        run: python3 ci/prepare_embedded_justplus.py
+        run: |
+          python3 ci/prepare_embedded_justplus.py
+          echo "android.aapt2FromMavenOverride=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}/build-tools/36.0.0/aapt2" >> gradle.properties
 
       - name: Grant Gradle execute permission
         run: chmod +x gradlew
