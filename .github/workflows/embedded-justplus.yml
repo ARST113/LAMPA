@@ -62,6 +62,35 @@ jobs:
         if: success()
         run: ls -lh app/build/outputs/apk/lite/debug/
 
+      - name: Smoke test APK in Android emulator
+        if: success()
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: |
+            APK="$(find app/build/outputs/apk/lite/debug -name '*.apk' | head -1)"
+            adb logcat -c
+            adb install -r "$APK"
+            adb shell am force-stop top.rootu.lampa
+            adb shell am start -W -n top.rootu.lampa/.MainActivity
+            sleep 12
+            echo "=== Current activity ==="
+            adb shell dumpsys activity activities | grep -E "mResumedActivity|top.rootu.lampa" | head -30 || true
+            echo "=== Fatal log excerpt ==="
+            adb logcat -d -v time | grep -E "FATAL EXCEPTION|AndroidRuntime|top.rootu.lampa|NoSuchMethodError|NoClassDefFoundError|ClassNotFoundException" | tail -250 || true
+            if adb shell dumpsys activity activities | grep -q "top.rootu.lampa/.CrashActivity"; then
+              echo "LAMPA entered CrashActivity"
+              exit 1
+            fi
+            if ! adb shell pidof top.rootu.lampa >/dev/null; then
+              echo "LAMPA process is not alive"
+              exit 1
+            fi
+
       - name: Upload APK
         if: success()
         uses: actions/upload-artifact@v4
