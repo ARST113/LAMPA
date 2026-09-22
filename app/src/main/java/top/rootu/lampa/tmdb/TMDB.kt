@@ -5,6 +5,7 @@ import android.os.Build
 import androidx.core.net.toUri
 import okhttp3.Dns
 import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.dnsoverhttps.DnsOverHttps
@@ -170,8 +171,8 @@ object TMDB {
                 startWithQuad9DNS() else permissiveOkHttp()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) throw IOException("Unexpected code $response")
-                body = response.body()?.string()
-                response.body()?.close()
+                body = response.body?.string()
+                response.body?.close()
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -243,8 +244,8 @@ object TMDB {
                 startWithQuad9DNS() else permissiveOkHttp()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) throw IOException("Unexpected code $response")
-                body = response.body()?.string()
-                response.body()?.close()
+                body = response.body?.string()
+                response.body?.close()
             }
         } catch (e: Exception) {
             e.printStackTrace()
