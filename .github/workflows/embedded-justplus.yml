@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: embedded-justplus-build
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build LAMPA with embedded Just+ Player
@@ -35,6 +39,14 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: gradle
+
+      - name: Install Android 36 platform
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort -V | tail -1)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-36" "build-tools;35.0.0"
 
       - name: Prepare embedded player modules
         run: |
