@@ -62,6 +62,8 @@ android {
         buildConfigField "String", "APPLICATION_ID", "\"top.rootu.lampa\""
         buildConfigField "String", "VERSION_NAME", "\"embedded\""
         buildConfigField "int", "VERSION_CODE", "1"
+        buildConfigField "String", "FLAVOR", "\\\"embedded\\\""
+        buildConfigField "String", "FLAVOR_distribution", "\\\"universal\\\""
     }
 
     buildTypes {
