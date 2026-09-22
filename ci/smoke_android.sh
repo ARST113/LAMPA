@@ -4,6 +4,12 @@ set -euo pipefail
 APK="$(find app/build/outputs/apk/lite/debug -name '*.apk' | head -1)"
 test -n "$APK"
 
+echo "=== Device ==="
+adb shell getprop ro.build.version.release
+PAGE_SIZE="$(adb shell getconf PAGE_SIZE | tr -d '\r')"
+echo "PAGE_SIZE=$PAGE_SIZE"
+test "$PAGE_SIZE" = "16384"
+
 adb logcat -c
 adb install -r "$APK"
 adb shell am force-stop top.rootu.lampa
