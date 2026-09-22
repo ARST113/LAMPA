@@ -53,10 +53,10 @@ def getRepoId = { ->
 
 android {
     //noinspection GradleDependency
-    compileSdk 34
+    compileSdk 36
     defaultConfig {
         applicationId "top.rootu.lampa"
-        minSdkVersion 16
+        minSdkVersion 23
         //noinspection ExpiredTargetSdkVersion
         targetSdkVersion 28
         versionCode getVersionCode()
