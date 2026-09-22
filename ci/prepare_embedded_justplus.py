@@ -33,7 +33,7 @@ write("settings.gradle", settings)
 
 # 2) The embedded Media3 player requires API 23+, and its current libraries compile against API 36.
 app_gradle = read("app/build.gradle")
-# Keep LAMPA on compileSdk 34; Just+ uses runtime checks for newer platform behavior.
+app_gradle = re.sub(r"compileSdk\s+34", "compileSdk 36", app_gradle, count=1)
 app_gradle = re.sub(r"minSdkVersion\s+16", "minSdkVersion 23", app_gradle, count=1)
 if "implementation project(':justplus')" not in app_gradle:
     marker = "dependencies {"
@@ -43,7 +43,7 @@ write("app/build.gradle", app_gradle)
 
 props = read("gradle.properties")
 props = props.replace("android.nonTransitiveRClass=true", "android.nonTransitiveRClass=false")
-props = re.sub(r"android\.suppressUnsupportedCompileSdk=.*", "android.suppressUnsupportedCompileSdk=34", props)
+props = re.sub(r"android\.suppressUnsupportedCompileSdk=.*", "android.suppressUnsupportedCompileSdk=36", props)
 write("gradle.properties", props)
 
 # 3) Turn the Just+ application module into a library module compatible with LAMPA's root build.
@@ -51,7 +51,7 @@ justplus_gradle = r'''apply plugin: 'com.android.library'
 
 android {
     namespace 'com.brouken.player'
-    compileSdk 34
+    compileSdk 36
 
     defaultConfig {
         minSdkVersion 23
@@ -140,7 +140,7 @@ doubletap_gradle = r'''apply plugin: 'com.android.library'
 
 android {
     namespace 'com.github.vkay94.dtpv'
-    compileSdk 34
+    compileSdk 36
 
     defaultConfig {
         minSdkVersion 23
@@ -170,7 +170,7 @@ filechooser_gradle = r'''apply plugin: 'com.android.library'
 
 android {
     namespace 'com.obsez.android.lib.filechooser'
-    compileSdk 34
+    compileSdk 36
     resourcePrefix "obsez_fc__"
 
     defaultConfig {
