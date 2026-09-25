@@ -50,8 +50,14 @@ def collect_from_artifact(path: str) -> dict[str, set[str]]:
     return result
 
 
-def strip_declarations(blob: bytes, foreign: dict[str, set[str]]) -> tuple[bytes, dict[str, int]]:
-    """Убирает из values-файла объявления, присутствующие у других библиотек."""
+def strip_declarations(blob: bytes, foreign: dict[str, set[str]],
+                       seen: dict[str, set[str]]) -> tuple[bytes, dict[str, int]]:
+    """Убирает объявления, которые уже есть у других библиотек ИЛИ уже встречались в этом AAR.
+
+    Второе важно не меньше первого: ресурсы AAR собраны из 1738 values-файлов Chrome и
+    пересекаются между собой, поэтому один и тот же attr может лежать в двух файлах —
+    для resource merger это такой же дубликат.
+    """
     removed: dict[str, int] = {}
     try:
         root = ET.fromstring(blob)
@@ -62,20 +68,30 @@ def strip_declarations(blob: bytes, foreign: dict[str, set[str]]) -> tuple[bytes
         # иначе дубликат остаётся и merger падает на «Duplicate value for resource attr/...».
         if child.tag == "declare-styleable":
             for sub in list(child):
-                names = foreign.get(sub.tag)
-                if names and sub.get("name") in names:
+                name = sub.get("name")
+                if not name:
+                    continue
+                names = foreign.get(sub.tag, set())
+                already = seen.setdefault(sub.tag, set())
+                if name in names or name in already:
                     child.remove(sub)
                     key = f"declare-styleable/{sub.tag}"
                     removed[key] = removed.get(key, 0) + 1
+                else:
+                    already.add(name)
             if len(child) == 0:
                 root.remove(child)
             continue
-        names = foreign.get(child.tag)
-        if not names:
+        name = child.get("name")
+        if not name:
             continue
-        if child.get("name") in names:
+        names = foreign.get(child.tag, set())
+        already = seen.setdefault(child.tag, set())
+        if name in names or name in already:
             root.remove(child)
             removed[child.tag] = removed.get(child.tag, 0) + 1
+        else:
+            already.add(name)
     if not removed:
         return blob, removed
     return XML_HEADER + ET.tostring(root, encoding="utf-8"), removed
@@ -100,11 +116,12 @@ def main(argv: list[str]) -> None:
     print("объявлений у зависимостей:", {k: len(v) for k, v in sorted(foreign.items())})
 
     total: dict[str, int] = {}
+    seen: dict[str, set[str]] = {}
     with zipfile.ZipFile(src) as zin, zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zout:
         for item in zin.infolist():
             data = zin.read(item.filename)
             if "/values" in item.filename and item.filename.endswith(".xml"):
-                data, removed = strip_declarations(data, foreign)
+                data, removed = strip_declarations(data, foreign, seen)
                 for kind, count in removed.items():
                     total[kind] = total.get(kind, 0) + count
             zout.writestr(item, data)
