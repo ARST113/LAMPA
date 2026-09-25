@@ -306,7 +306,7 @@ class Cefrium(
                         fail(callback, 404, "нет JS-объекта с именем ${json.getString("object")}")
                     } else {
                         val result = dispatch(target, json.getString("method"), json.optJSONArray("args"))
-                        answer(callback, JSONObject.valueToString(result))
+                        answer(callback, toJson(result))
                     }
                 }
             }
@@ -336,6 +336,14 @@ class Cefrium(
             }
         }
         return method.invoke(target, *values)
+    }
+
+    /** Результат Java-метода → JSON-строка (JSONObject.valueToString в Android не публичный). */
+    private fun toJson(value: Any?): String = when (value) {
+        null -> "null"
+        is String -> JSONObject.quote(value)
+        is Number, is Boolean -> value.toString()
+        else -> JSONObject.quote(value.toString())
     }
 
     private fun answer(callback: Any?, value: String) {
