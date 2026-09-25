@@ -58,7 +58,6 @@ class AndroidJS(private val mainActivity: MainActivity, private val browser: Bro
     }
 
     @JavascriptInterface
-    @JavascriptInterface
     fun storageChange(json: String?) {
         val hash = json.hashCode().toString()
         if (hash == lastEventHash) {
@@ -200,12 +199,10 @@ class AndroidJS(private val mainActivity: MainActivity, private val browser: Bro
 
 
     @JavascriptInterface
-    @JavascriptInterface
     fun appVersion(): String {
         return BuildConfig.VERSION_NAME + "-" + BuildConfig.VERSION_CODE
     }
 
-    @JavascriptInterface
     @JavascriptInterface
     fun exit() {
         try {
@@ -215,7 +212,6 @@ class AndroidJS(private val mainActivity: MainActivity, private val browser: Bro
         }
     }
 
-    @JavascriptInterface
     @JavascriptInterface
     @Throws(JSONException::class)
     fun openTorrentLink(url: String, jsonString: String): Boolean {
@@ -270,7 +266,6 @@ class AndroidJS(private val mainActivity: MainActivity, private val browser: Bro
     }
 
     @JavascriptInterface
-    @JavascriptInterface
     fun openYoutube(str: String) {
         val intent = Intent(
             Intent.ACTION_VIEW,
@@ -286,7 +281,6 @@ class AndroidJS(private val mainActivity: MainActivity, private val browser: Bro
         }
     }
 
-    @JavascriptInterface
     @JavascriptInterface
     fun openBrowser(url: String) {
         val intent = Intent(Intent.ACTION_VIEW, url.toUri())
@@ -304,7 +298,6 @@ class AndroidJS(private val mainActivity: MainActivity, private val browser: Bro
     }
 
     @JavascriptInterface
-    @JavascriptInterface
     fun clearDefaultPlayer() {
         mainActivity.runOnUiThread {
             mainActivity.setPlayerPackage("", false)
@@ -313,7 +306,6 @@ class AndroidJS(private val mainActivity: MainActivity, private val browser: Bro
         }
     }
 
-    @JavascriptInterface
     @JavascriptInterface
     fun httpReq(str: String, returnI: Int) {
         debugLog(TAG, "httpReq JSON $str")
@@ -416,7 +408,6 @@ class AndroidJS(private val mainActivity: MainActivity, private val browser: Bro
     }
 
     @JavascriptInterface
-    @JavascriptInterface
     fun getResp(str: String): String? {
         var string: String? = ""
         if (reqResponse.containsKey(str)) {
@@ -426,7 +417,6 @@ class AndroidJS(private val mainActivity: MainActivity, private val browser: Bro
         return string
     }
 
-    @JavascriptInterface
     @JavascriptInterface
     fun openPlayer(link: String, jsonStr: String) {
         debugLog(TAG, "openPlayer: $link json:$jsonStr")
@@ -454,18 +444,15 @@ class AndroidJS(private val mainActivity: MainActivity, private val browser: Bro
     }
 
     @JavascriptInterface
-    @JavascriptInterface
     fun setProxyPAC(link: String): Boolean {
         return Http.setProxyPAC(link)
     }
 
     @JavascriptInterface
-    @JavascriptInterface
     fun getProxyPAC(): String {
         return Http.getProxyPAC()
     }
 
-    @JavascriptInterface
     @JavascriptInterface
     fun voiceStart() {
         // Голосовой ввод с последующей передачей результата через JS
@@ -486,7 +473,6 @@ class AndroidJS(private val mainActivity: MainActivity, private val browser: Bro
      * @param json The JSON string containing bookmarks.
      */
     @JavascriptInterface
-    @JavascriptInterface
     fun saveBookmarks(json: String?) {
         debugLog(TAG, "saveBookmarks fired!")
         CoroutineScope(Dispatchers.Default).launch {
@@ -503,7 +489,6 @@ class AndroidJS(private val mainActivity: MainActivity, private val browser: Bro
     }
 
     @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
-    @JavascriptInterface
     @JavascriptInterface
     fun updateChannel(where: String?) {
         // https://github.com/yumata/lampa-source/blob/e5505b0e9cf5f95f8ec49bddbbb04086fccf26c8/src/app.js#L203
@@ -538,7 +523,6 @@ class AndroidJS(private val mainActivity: MainActivity, private val browser: Bro
     // https://stackoverflow.com/a/41560207
     // https://copyprogramming.com/howto/android-webview-savestate
     @JavascriptInterface
-    @JavascriptInterface
     @Synchronized
     fun dump() {
         check(!dumped) { "already dumped" }
@@ -554,14 +538,12 @@ class AndroidJS(private val mainActivity: MainActivity, private val browser: Bro
     }
 
     @JavascriptInterface
-    @JavascriptInterface
     @Synchronized
     fun size(): Int {
         check(dumped) { "dump() first" }
         return keys!!.size
     }
 
-    @JavascriptInterface
     @JavascriptInterface
     @Synchronized
     fun key(i: Int): String? {
@@ -570,7 +552,6 @@ class AndroidJS(private val mainActivity: MainActivity, private val browser: Bro
     }
 
     @JavascriptInterface
-    @JavascriptInterface
     @Synchronized
     fun value(i: Int): String? {
         check(dumped) { "dump() first" }
@@ -578,13 +559,11 @@ class AndroidJS(private val mainActivity: MainActivity, private val browser: Bro
     }
 
     @JavascriptInterface
-    @JavascriptInterface
     @Synchronized
     operator fun get(key: String?): String? {
         return store.getString(key, null)
     }
 
-    @JavascriptInterface
     @JavascriptInterface
     @Synchronized
     operator fun set(key: String?, value: String?) {
@@ -592,7 +571,6 @@ class AndroidJS(private val mainActivity: MainActivity, private val browser: Bro
         store.edit { putString(key, value) }
     }
 
-    @JavascriptInterface
     @JavascriptInterface
     @Synchronized
     fun clear() {
