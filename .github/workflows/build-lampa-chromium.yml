@@ -120,16 +120,7 @@ jobs:
           # их определения ресурсов остаются, а копии внутри AAR убираются.
           ./gradlew --no-daemon -q :app:printChromiumRuntimeArtifacts > work/classpath.txt
           echo "артефактов в класспути: $(wc -l < work/classpath.txt)"
-          python3 tools/slim_aar_resources.py work/cefrium-stage.aar work/cefrium-slim-res.aar work/classpath.txt | tee artifacts/slim-aar.log
-          ls -la work/cefrium-slim-res.aar
-
-      - name: Срезать из AAR Cefrium дублирующиеся классы
-        if: ${{ env.FLAVOR == 'chromium' }}
-        run: |
-          set -euo pipefail
-          # AAR несёт копии сторонних библиотек; если те же классы приходят из зависимостей,
-          # AGP падает на checkChromiumDebugDuplicateClasses — оставляем класс у библиотеки.
-          python3 tools/slim_aar_classes.py work/cefrium-slim-res.aar "app/libs/cefrium-sdk-$ABI.aar" work/classpath.txt | tee artifacts/slim-aar-classes.log
+          python3 tools/slim_aar_resources.py work/cefrium-stage.aar "app/libs/cefrium-sdk-$ABI.aar" work/classpath.txt | tee artifacts/slim-aar.log
           ls -la app/libs/
 
       - name: Сборка ${FLAVOR}Debug
