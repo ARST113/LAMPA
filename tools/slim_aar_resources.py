@@ -41,6 +41,16 @@ def collect_from_artifact(path: str) -> dict[str, set[str]]:
                 except ET.ParseError:
                     continue
                 for child in root:
+                    # В файлах библиотек attr часто лежит внутри <declare-styleable>
+                    # (например, androidx.window объявляет SplitPairRule именно так) —
+                    # без обхода вложенного уровня такие объявления не попадают в набор.
+                    if child.tag == "declare-styleable":
+                        for sub in child:
+                            if sub.tag in DECL:
+                                res_name = sub.get("name")
+                                if res_name:
+                                    result.setdefault(sub.tag, set()).add(res_name)
+                        continue
                     if child.tag in DECL:
                         res_name = child.get("name")
                         if res_name:
