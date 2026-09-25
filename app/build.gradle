@@ -220,6 +220,14 @@ dependencies {
     // а код LAMPA обращается к ним через рефлексию.
     chromiumImplementation fileTree(dir: 'libs', include: ['xwalk_shared_library-23.53.589.4.aar'])
     chromiumImplementation fileTree(dir: 'libs', include: ['cefrium-sdk-*.aar'])
+    // AAR Cefrium везёт внутри себя ресурсы androidx (mediarouter/material/appcompat).
+    // Если рядом оказывается другая версия той же библиотеки, resource merger падает на
+    // несовпадающих attr — поэтому версии выровнены ровно по POM самого SDK.
+    chromiumImplementation 'androidx.appcompat:appcompat:1.7.0'
+    chromiumImplementation 'androidx.mediarouter:mediarouter:1.7.0'
+    chromiumImplementation 'androidx.core:core:1.16.0'
+    chromiumImplementation 'androidx.browser:browser:1.8.0'
+    chromiumImplementation 'androidx.datastore:datastore-preferences:1.1.1'
     // crosswalk latest
     liteApi fileTree(dir: 'libs', include: ['xwalk_shared_library-23.53.589.4.aar'])
     ruStoreApi fileTree(dir: 'libs', include: ['xwalk_shared_library-23.53.589.4.aar'])
