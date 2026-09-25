@@ -3,7 +3,7 @@ name: Build Lampa client with Chromium AC3/EAC3 runtime
 # Собирает официальный клиент Lampa (ARST113/LAMPA) и проверяет его на Android-эмуляторе
 # стандартного GitHub-раннера (ubuntu-latest + KVM): установка, запуск, logcat, скриншот.
 #
-# Ветка: feature/chromium-ac3-runtime — исходники не трогаем, всё живёт здесь.
+# Работает только на ветке feature/chromium-ac3-runtime — исходники main не трогаем.
 on:
   push:
     branches: [feature/chromium-ac3-runtime]
@@ -21,11 +21,14 @@ on:
         description: 'API уровень эмулятора'
         required: false
         default: '29'
+        type: choice
+        options: ['29', '34', '35']
       run_emulator:
         description: 'Прогонять проверку на эмуляторе'
         required: false
-        default: true
-        type: boolean
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
 
 permissions:
   contents: read
@@ -58,29 +61,22 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
-      - name: Android SDK 34 (compileSdk проекта)
+      - name: Android SDK (compileSdk 36)
         run: |
-          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
-          test -x "$SDKMANAGER" || { echo "нет sdkmanager в $ANDROID_SDK_ROOT" >&2; ls -la "$ANDROID_SDK_ROOT" >&2; exit 1; }
+          SDKMANAGER=$(find "${ANDROID_SDK_ROOT}/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort -V | tail -1)
+          test -n "$SDKMANAGER" || { echo "нет sdkmanager в $ANDROID_SDK_ROOT" >&2; ls -la "$ANDROID_SDK_ROOT" >&2; exit 1; }
           yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
-          "$SDKMANAGER" --install "platforms;android-34" "build-tools;34.0.0" "platform-tools" || true
+          "$SDKMANAGER" --install "platforms;android-36" "build-tools;35.0.0" "platform-tools" > /dev/null
           "$SDKMANAGER" --list_installed | sed -n '1,25p'
-
-      - name: Кэш Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: lampa-gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle', 'gradle/wrapper/gradle-wrapper.properties') }}
-          restore-keys: lampa-gradle-${{ runner.os }}-
 
       - name: Разрешения на gradlew
         run: chmod +x gradlew
 
-      - name: Сборка ${{ env.FLAVOR }}Debug
+      - name: Сборка ${FLAVOR}Debug
         run: |
+          set -o pipefail
           mkdir -p artifacts
           ./gradlew --no-daemon ":app:assemble${FLAVOR^}Debug" --stacktrace 2>&1 | tee artifacts/gradle-build.log
 
@@ -88,11 +84,12 @@ jobs:
         run: |
           set -euo pipefail
           log=$(printf '%s' "$FLAVOR" | tr '[:upper:]' '[:lower:]')
-          apk=$(find "app/build/outputs/apk/$log/debug" -maxdepth 1 -name '*.apk' | head -1)
-          test -n "$apk" || { echo "APK не найден в app/build/outputs/apk/$log/debug" >&2; ls -R app/build/outputs/apk || true; exit 1; }
+          dir="app/build/outputs/apk/$log/debug"
+          apk=$(find "$dir" -maxdepth 1 -name '*.apk' 2>/dev/null | head -1)
+          test -n "$apk" || { echo "APK не найден в $dir" >&2; ls -R app/build/outputs/apk || true; exit 1; }
           cp "$apk" "artifacts/Lampa-$FLAVOR-debug.apk"
           (cd artifacts && sha256sum "Lampa-$FLAVOR-debug.apk" | tee SHA256SUMS)
-          echo "APK_PATH=artifacts/Lampa-$FLAVOR-debug.apk" >> "$GITHUB_ENV"
+          ls -lh artifacts/
 
       - name: Выгрузка APK
         if: always()
@@ -104,13 +101,11 @@ jobs:
           if-no-files-found: warn
 
   emulator:
-    name: Проверка на эмуляторе (API ${{ github.event.inputs.api_level || '29' }})
+    name: Проверка на эмуляторе
     needs: build
     if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.run_emulator != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
-    env:
-      ANDROID_AVD_HOME: ${{ github.workspace }}/.avd
     steps:
       - uses: actions/checkout@v4
 
@@ -126,99 +121,37 @@ jobs:
           name: lampa-${{ env.FLAVOR }}-build-${{ github.run_number }}
           path: apk
 
-      - name: Свободное место
+      - name: Разложить APK туда, где его ищет smoke-скрипт
         run: |
-          df -h /
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android/sdk/ndk || true
-          df -h /
+          set -euo pipefail
+          log=$(printf '%s' "$FLAVOR" | tr '[:upper:]' '[:lower:]')
+          mkdir -p "app/build/outputs/apk/$log/debug"
+          cp apk/*.apk "app/build/outputs/apk/$log/debug/"
+          ls -la "app/build/outputs/apk/$log/debug/"
 
       - name: Включить KVM
         run: |
-          ls -l /dev/kvm || true
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-          sudo chmod 666 /dev/kvm || true
-          test -r /dev/kvm -a -w /dev/kvm && echo 'KVM доступен'
+          ls -l /dev/kvm || true
 
-      - name: Установить эмулятор и системный образ
-        run: |
-          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
-          "$SDKMANAGER" --install "platform-tools" "emulator" "platforms;android-${API_LEVEL}" \
-            "system-images;android-${API_LEVEL};google_apis;x86_64"
-          "$ANDROID_SDK_ROOT/emulator/emulator" -accel-check || true
-
-      - name: Запуск эмулятора
-        run: |
-          set -euo pipefail
-          export PATH="$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/emulator:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
-          mkdir -p artifacts/emulator "$ANDROID_AVD_HOME"
-          adb start-server
-          printf 'no\n' | avdmanager create avd --force --name "lampa-$API_LEVEL" \
-            --package "system-images;android-${API_LEVEL};google_apis;x86_64"
-          nohup emulator -avd "lampa-$API_LEVEL" -no-window -no-audio -no-boot-anim -no-snapshot \
-            -gpu swiftshader_indirect -cores 4 -memory 4096 -skin 1280x720 \
-            > artifacts/emulator/emulator.log 2>&1 &
-          echo $! > /tmp/emulator.pid
-          timeout 300 adb wait-for-device
-          for attempt in $(seq 1 180); do
-            [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == 1 ]] && break
-            sleep 3
-          done
-          adb shell getprop sys.boot_completed
-          adb shell settings put global window_animation_scale 0
-          adb shell settings put global transition_animation_scale 0
-          adb shell settings put global animator_duration_scale 0
-          adb shell wm dismiss-keyguard || true
-          adb shell getprop > artifacts/emulator/android-properties.txt
-
-      - name: Установка и запуск приложения
-        run: |
-          set -uo pipefail
-          export PATH="$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/emulator:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
-          apk=$(find apk -maxdepth 1 -name '*.apk' | head -1)
-          echo "ставим $apk"; ls -la "$apk"
-          adb install -r -t "$apk" 2>&1 | tee artifacts/emulator/install.log
-          adb logcat -c
-          adb shell am start -W -n top.rootu.lampa/.MainActivity 2>&1 | tee artifacts/emulator/am-start.log
-          sleep 30
-          echo "--- что на экране ---"
-          adb shell dumpsys activity activities | grep -E 'mResumedActivity|mFocusedApp' | head -5 | tee artifacts/emulator/focused.txt
-          echo "--- процесс жив? ---"
-          pid=$(adb shell pidof top.rootu.lampa | tr -d '\r')
-          echo "pid=$pid" | tee artifacts/emulator/pid.txt
-          adb logcat -d > artifacts/emulator/logcat.txt 2>&1
-          adb exec-out screencap -p > artifacts/emulator/screen.png 2>/dev/null || true
-          adb shell dumpsys window | grep -E 'mCurrentFocus' | head -3 | tee artifacts/emulator/current-focus.txt || true
-          adb pull /data/anr artifacts/emulator/anr 2>/dev/null || true
-          if [[ -z "$pid" ]]; then
-            echo "::error::Процесс top.rootu.lampa не найден через 30 секунд после запуска"
-            echo "--- хвост logcat ---"
-            grep -a -E 'FATAL|AndroidRuntime|Exception|SIGSEGV|top.rootu.lampa' artifacts/emulator/logcat.txt | tail -60
-            exit 1
-          fi
-          if grep -a -q 'FATAL EXCEPTION' artifacts/emulator/logcat.txt; then
-            echo "::error::В logcat есть FATAL EXCEPTION"
-            grep -a -A 30 -m 1 'FATAL EXCEPTION' artifacts/emulator/logcat.txt
-            exit 1
-          fi
-          echo "Приложение запустилось и не упало (pid=$pid)"
-
-      - name: Остановить эмулятор и выгрузить доказательства
-        if: always()
-        run: |
-          export PATH="$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/emulator:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH"
-          adb logcat -d > artifacts/emulator/logcat-final.txt 2>&1 || true
-          adb emu kill 2>/dev/null || true
-          [[ -f /tmp/emulator.pid ]] && kill "$(cat /tmp/emulator.pid)" 2>/dev/null || true
-          ls -laR artifacts || true
+      - name: Эмулятор: установка, запуск, logcat, скриншот
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ env.API_LEVEL }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: bash ci/smoke_lampa.sh "$FLAVOR"
 
       - name: Выгрузка доказательств с эмулятора
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: lampa-emulator-${{ env.API_LEVEL }}-${{ github.run_number }}
+          name: lampa-emulator-api${{ env.API_LEVEL }}-${{ github.run_number }}
           path: artifacts/
           retention-days: 30
           if-no-files-found: warn
