@@ -112,18 +112,9 @@ jobs:
           python3 tools/repack_aar.py "work/$name" work/aar/classes-55.jar "work/cefrium-stage.aar"
           ls -la work/cefrium-stage.aar
 
-      - name: Срезать из AAR дублирующиеся ресурсы
+      - name: Подготовить рантайм для инъекции
         if: ${{ env.FLAVOR == 'chromium' }}
-        run: |
-          set -euo pipefail
-          # Атрибуты вроде attr/finishPrimaryWithSecondary приходят в AAR из ресурсного набора
-          # Chrome (копия ресурсов androidx.window), классов при этом в AAR нет — поэтому
-          # конфликт ловится только по ресурсам, а не по исключению модулей.
-          ./gradlew --no-daemon -q :app:printChromiumRuntimeArtifacts > work/classpath.txt
-          echo "артефактов в класспути: $(wc -l < work/classpath.txt)"
-          python3 tools/slim_aar_resources.py work/cefrium-stage.aar work/cefrium-slim.aar work/classpath.txt | tee artifacts/slim-aar.log
-          python3 tools/slim_aar_classes.py work/cefrium-slim.aar "app/libs/cefrium-sdk-$ABI.aar" work/classpath.txt | tee artifacts/slim-aar-classes.log
-          ls -la app/libs/
+        run: echo "RUNTIME_AAR=$PWD/work/cefrium-stage.aar" >> "$GITHUB_ENV"
 
       - name: Сборка ${FLAVOR}Debug
         run: |
@@ -131,12 +122,36 @@ jobs:
           mkdir -p artifacts
           ./gradlew --no-daemon ":app:assemble${FLAVOR^}Debug" -Pabi="$ABI" --stacktrace 2>&1 | tee artifacts/gradle-build.log
 
+      - name: Инжектировать рантайм Cefrium в APK (flavor chromium)
+        if: ${{ env.FLAVOR == 'chromium' }}
+        run: |
+          set -euo pipefail
+          BT="$ANDROID_SDK_ROOT/build-tools/35.0.0"
+          gradle_apk=$(find app/build/outputs/apk/chromium/debug -maxdepth 1 -name '*.apk' | head -1)
+          test -n "$gradle_apk"
+          mkdir -p work/dex work/inject
+          "$BT/d8" --min-api 29 --lib "$ANDROID_SDK_ROOT/platforms/android-36/android.jar" \
+            --output work/dex work/aar/classes-55.jar 2>&1 | tee artifacts/d8-runtime.log
+          python3 tools/inject_cefrium_runtime.py "$gradle_apk" "$RUNTIME_AAR" "$ABI" work | tee artifacts/inject.log
+          keytool -genkeypair -keystore work/debug.keystore -storepass android -keypass android \
+            -alias androiddebugkey -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 \
+            -validity 10000 > /dev/null 2>&1
+          "$BT/zipalign" -f -p 4 work/injected.apk work/aligned.apk
+          "$BT/apksigner" sign --ks work/debug.keystore --ks-pass pass:android --key-pass pass:android \
+            --out work/final.apk work/aligned.apk
+          "$BT/apksigner" verify --print-certs work/final.apk | head -3
+          echo "INJECTED_APK=$PWD/work/final.apk" >> "$GITHUB_ENV"
+
       - name: Собрать APK и посчитать SHA256
         run: |
           set -euo pipefail
           log=$(printf '%s' "$FLAVOR" | tr '[:upper:]' '[:lower:]')
           dir="app/build/outputs/apk/$log/debug"
-          apk=$(find "$dir" -maxdepth 1 -name '*.apk' 2>/dev/null | head -1)
+          if [[ -n "${INJECTED_APK:-}" ]]; then
+            apk="$INJECTED_APK"
+          else
+            apk=$(find "$dir" -maxdepth 1 -name '*.apk' 2>/dev/null | head -1)
+          fi
           test -n "$apk" || { echo "APK не найден в $dir" >&2; ls -R app/build/outputs/apk || true; exit 1; }
           cp "$apk" "artifacts/Lampa-$FLAVOR-debug.apk"
           (cd artifacts && sha256sum "Lampa-$FLAVOR-debug.apk" | tee SHA256SUMS)
