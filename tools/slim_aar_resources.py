@@ -6,6 +6,9 @@
 падает на «Duplicate value for resource 'attr/...'». Скрипт оставляет каждое определение
 ровно в одном месте — у библиотек, и убирает дубликат из AAR.
 
+Удаление делается XML-парсером, а не регулярками: значения в values-файлах бывают
+многострочными с вложенными элементами (`<style>` с `<item>`), и regex легко рвёт XML.
+
 Использование:
     python3 tools/slim_aar_resources.py ВХОД.aar ВЫХОД.aar СПИСОК_АРТЕФАКТОВ.txt
 
@@ -15,25 +18,16 @@
 from __future__ import annotations
 
 import os
-import re
 import sys
 import zipfile
+import xml.etree.ElementTree as ET
 
-KINDS = ("attr", "string", "style", "color", "dimen", "bool", "integer", "string-array", "array")
-NAME_RE = {k: re.compile(rf'<{k}\b[^>]*\bname="([^"]+)"') for k in KINDS}
-
-
-def declared_names(blob: str) -> dict[str, set[str]]:
-    found: dict[str, set[str]] = {}
-    for kind, rx in NAME_RE.items():
-        names = set(rx.findall(blob))
-        if names:
-            found[kind] = names
-    return found
+DECL = ("attr", "string", "style", "color", "dimen", "bool", "integer", "string-array", "array")
+XML_HEADER = b'<?xml version="1.0" encoding="utf-8"?>\n'
 
 
 def collect_from_artifact(path: str) -> dict[str, set[str]]:
-    """Собирает имена ресурсов из AAR (res/values*) или JAR (res/values*)."""
+    """Имена ресурсов, объявленных в AAR/JAR (файлы res/values*)."""
     result: dict[str, set[str]] = {}
     if not path.endswith((".aar", ".jar", ".zip")):
         return result
@@ -43,36 +37,36 @@ def collect_from_artifact(path: str) -> dict[str, set[str]]:
                 if "/values" not in name or not name.endswith(".xml"):
                     continue
                 try:
-                    blob = z.read(name).decode("utf-8", "replace")
-                except Exception:
+                    root = ET.fromstring(z.read(name))
+                except ET.ParseError:
                     continue
-                for kind, names in declared_names(blob).items():
-                    result.setdefault(kind, set()).update(names)
+                for child in root:
+                    if child.tag in DECL:
+                        res_name = child.get("name")
+                        if res_name:
+                            result.setdefault(child.tag, set()).add(res_name)
     except zipfile.BadZipFile:
         pass
     return result
 
 
-def strip_declarations(blob: str, foreign: dict[str, set[str]]) -> tuple[str, dict[str, int]]:
+def strip_declarations(blob: bytes, foreign: dict[str, set[str]]) -> tuple[bytes, dict[str, int]]:
+    """Убирает из values-файла объявления, присутствующие у других библиотек."""
     removed: dict[str, int] = {}
-    for kind in KINDS:
-        names = foreign.get(kind)
+    try:
+        root = ET.fromstring(blob)
+    except ET.ParseError:
+        return blob, removed
+    for child in list(root):
+        names = foreign.get(child.tag)
         if not names:
             continue
-        # <attr name="X" .../> или <attr name="X" ...>...</attr>
-        pattern = re.compile(
-            rf'[ \t]*<{kind}\b[^>]*\bname="([^"]+)"[^>]*(?:/>|>.*?</{kind}>)[ \t]*\n?',
-            re.DOTALL,
-        )
-
-        def repl(m: re.Match) -> str:
-            if m.group(1) in names:
-                removed[kind] = removed.get(kind, 0) + 1
-                return ""
-            return m.group(0)
-
-        blob = pattern.sub(repl, blob)
-    return blob, removed
+        if child.get("name") in names:
+            root.remove(child)
+            removed[child.tag] = removed.get(child.tag, 0) + 1
+    if not removed:
+        return blob, removed
+    return XML_HEADER + ET.tostring(root, encoding="utf-8"), removed
 
 
 def main(argv: list[str]) -> None:
@@ -91,18 +85,16 @@ def main(argv: list[str]) -> None:
             for kind, names in collect_from_artifact(path).items():
                 foreign.setdefault(kind, set()).update(names)
     print(f"просканировано артефактов: {artifacts}")
-    print("найдено у зависимостей:", {k: len(v) for k, v in sorted(foreign.items())})
+    print("объявлений у зависимостей:", {k: len(v) for k, v in sorted(foreign.items())})
 
     total: dict[str, int] = {}
     with zipfile.ZipFile(src) as zin, zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zout:
         for item in zin.infolist():
             data = zin.read(item.filename)
             if "/values" in item.filename and item.filename.endswith(".xml"):
-                text = data.decode("utf-8", "replace")
-                text, removed = strip_declarations(text, foreign)
+                data, removed = strip_declarations(data, foreign)
                 for kind, count in removed.items():
                     total[kind] = total.get(kind, 0) + count
-                data = text.encode("utf-8")
             zout.writestr(item, data)
 
     print("удалено дубликатов из AAR:", dict(sorted(total.items())) or "нет")
