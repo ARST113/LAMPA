@@ -490,6 +490,10 @@ class MainActivity : BaseActivity(),
         } catch (_: NumberFormatException) {
             0.0
         }
+        // Flavor chromium собирается ради встроенного Chromium (AC3/EAC3) — он же и по умолчанию.
+        if (SELECTED_BROWSER.isNullOrEmpty() && BuildConfig.FLAVOR == "chromium") {
+            SELECTED_BROWSER = "Cefrium"
+        }
         // Use WebView on RuStore builds and modern Androids by default
         if (Helpers.isWebViewAvailable(this)
             && SELECTED_BROWSER.isNullOrEmpty()
