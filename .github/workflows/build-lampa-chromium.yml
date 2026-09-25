@@ -120,8 +120,16 @@ jobs:
           ./gradlew --no-daemon -q :app:printChromiumRuntimeArtifacts > work/classpath.txt
           echo "артефактов в класспути: $(wc -l < work/classpath.txt)"
           python3 tools/gen_chromium_exclusions.py work/cefrium-stage.aar work/classpath.txt app/chromium-exclusions.gradle | tee artifacts/chromium-exclusions.log
-          cp work/cefrium-stage.aar "app/libs/cefrium-sdk-$ABI.aar"
           head -20 app/chromium-exclusions.gradle
+
+      - name: Срезать из AAR дублирующиеся ресурсы
+        if: ${{ env.FLAVOR == 'chromium' }}
+        run: |
+          set -euo pipefail
+          # Атрибуты вроде attr/finishPrimaryWithSecondary приходят в AAR из ресурсного набора
+          # Chrome (копия ресурсов androidx.window), классов при этом в AAR нет — поэтому
+          # конфликт ловится только по ресурсам, а не по исключению модулей.
+          python3 tools/slim_aar_resources.py work/cefrium-stage.aar "app/libs/cefrium-sdk-$ABI.aar" work/classpath.txt | tee artifacts/slim-aar.log
           ls -la app/libs/
 
       - name: Сборка ${FLAVOR}Debug
