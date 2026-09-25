@@ -233,10 +233,9 @@ dependencies {
     chromiumImplementation 'androidx.core:core:1.16.0'
     chromiumImplementation 'androidx.browser:browser:1.8.0'
     chromiumImplementation 'androidx.datastore:datastore-preferences:1.1.1'
-    // Рантайм Cefrium подключается штатной Gradle-зависимостью: так движок получает
-    // свои ресурсы и метаданные (в probe-приложении работает именно этот путь).
-    // AAR кладёт CI в app/libs (классы пересобираются в Java 11-совместимый байткод).
-    chromiumImplementation fileTree(dir: 'libs', include: ['cefrium-sdk-*.aar'])
+    // Рантайм Cefrium в сборку НЕ подключается: AGP не даёт держать в одном APK его копии
+    // библиотек вместе с зависимостями LAMPA (дубли классов и ресурсов). CI собирает APK без
+    // рантайма, а затем инжектит его (dex + libcef.so + ассеты CEF) — см. workflow.
     // Crosswalk удалён из проекта: движки — встроенный Chromium (Cefrium) и системный WebView.
 }
 
