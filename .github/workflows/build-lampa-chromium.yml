@@ -16,13 +16,19 @@ on:
         required: false
         default: lite
         type: choice
-        options: [lite, full, ruStore]
+        options: [lite, full, ruStore, chromium]
       api_level:
         description: 'API уровень эмулятора'
         required: false
         default: '29'
         type: choice
         options: ['29', '34', '35']
+      abi:
+        description: 'ABI рантайма (arm64-v8a — устройство, x86_64 — эмулятор)'
+        required: false
+        default: arm64-v8a
+        type: choice
+        options: [arm64-v8a, x86_64]
       run_emulator:
         description: 'Прогонять проверку на эмуляторе'
         required: false
@@ -40,8 +46,11 @@ concurrency:
 env:
   ANDROID_HOME: /usr/local/lib/android/sdk
   ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-  FLAVOR: ${{ github.event.inputs.flavor || 'lite' }}
+  # По умолчанию собираем именно интеграционный flavor с тремя движками;
+  # ABI x86_64 — чтобы тот же APK можно было проверить на эмуляторе GitHub.
+  FLAVOR: ${{ github.event.inputs.flavor || 'chromium' }}
   API_LEVEL: ${{ github.event.inputs.api_level || '29' }}
+  ABI: ${{ github.event.inputs.abi || 'x86_64' }}
 
 jobs:
   build:
@@ -74,11 +83,33 @@ jobs:
       - name: Разрешения на gradlew
         run: chmod +x gradlew
 
+      - name: Подготовить Chromium-рантайм Cefrium (flavor chromium)
+        if: ${{ env.FLAVOR == 'chromium' }}
+        run: |
+          set -euo pipefail
+          mkdir -p app/libs work artifacts
+          # arm64-v8a — кастомный AC3/EAC3-AAR из релиза; x86_64 — multi-ABI SDK из maven (нужен эмулятору)
+          if [[ "$ABI" == "arm64-v8a" ]]; then
+            url="https://github.com/ARST113/lampa-chromium-android/releases/download/cefrium-0.9.2-chromium-152-ac3-arm64-r8/cefrium-sdk-arm64-ac3.aar"
+            name="cefrium-sdk-arm64-ac3.aar"
+          else
+            url="https://codeberg.org/api/packages/cefrium/maven/com/cefrium/cefrium-sdk/0.9.2/cefrium-sdk-0.9.2.aar"
+            name="cefrium-sdk-0.9.2.aar"
+          fi
+          curl -sSL --fail -o "work/$name" "$url"
+          sha256sum "work/$name" | tee artifacts/runtime-aar.sha256
+          unzip -o -q "work/$name" classes.jar -d work/aar
+          # Классы SDK собраны JDK 25 (major 69) — D8 из AGP 8.10 их не принимает,
+          # поэтому понижаем версию class-файлов до Java 11.
+          python3 tools/downgrade_class_version.py work/aar/classes.jar work/aar/classes-55.jar 55 | tee artifacts/runtime-downgrade.log
+          python3 tools/repack_aar.py "work/$name" work/aar/classes-55.jar "app/libs/cefrium-sdk-$ABI.aar"
+          ls -la app/libs/
+
       - name: Сборка ${FLAVOR}Debug
         run: |
           set -o pipefail
           mkdir -p artifacts
-          ./gradlew --no-daemon ":app:assemble${FLAVOR^}Debug" --stacktrace 2>&1 | tee artifacts/gradle-build.log
+          ./gradlew --no-daemon ":app:assemble${FLAVOR^}Debug" -Pabi="$ABI" --stacktrace 2>&1 | tee artifacts/gradle-build.log
 
       - name: Собрать APK и посчитать SHA256
         run: |
