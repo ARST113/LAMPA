@@ -60,23 +60,35 @@ def main(argv: list[str]) -> None:
         sys.exit(f"нет dex-файлов в {dex_dir} — сначала запустите d8")
     print("dex-файлы:", dex_files)
 
-    # 3. Пересобрать APK
+    # 3. Пересобрать APK.
+    #    Порядок dex-файлов важен: загрузчик классов берёт первое совпадение по имени,
+    #    а Crosswalk в этом же APK владеет пакетом org.chromium.* (Chromium 53 против 152).
+    #    Поэтому классы Cefrium ставим сразу после classes.dex, а dex-файлы приложения
+    #    сдвигаем на количество добавленных — иначе побеждает старая копия Chromium.
+    shift = len(dex_files)
     out_path = os.path.join(workdir, "injected.apk")
     with zipfile.ZipFile(apk_path) as zin:
         existing = set(zin.namelist())
-        free = [i for i in range(2, 100) if f"classes{i}.dex" not in existing]
         with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zout:
-            for item in zin.infolist():
-                zout.writestr(item, zin.read(item.filename))
-
             added = 0
-            # classes2.dex, classes3.dex, ... (classes.dex уже есть)
-            for idx, dex in zip(free, dex_files):
+
+            # 3.1 наши dex-файлы: classes2.dex … classes(shift+1).dex
+            for offset, dex in enumerate(dex_files, start=1):
+                idx = 1 + offset
                 target = "classes.dex" if idx == 1 else f"classes{idx}.dex"
-                if target in existing:
-                    continue
                 zout.writestr(target, open(os.path.join(dex_dir, dex), "rb").read())
                 added += 1
+
+            # 3.2 dex-файлы приложения со сдвигом (classes.dex остаётся первым)
+            for item in zin.infolist():
+                name = item.filename
+                idx = dex_index(name)
+                if idx >= 2:
+                    new_name = f"classes{idx + shift}.dex"
+                    data = zin.read(name)
+                    zout.writestr(new_name, data)
+                else:
+                    zout.writestr(item, zin.read(name))
 
             # libcef.so — без сжатия, чтобы система могла извлечь библиотеку
             target_lib = f"lib/{abi}/libcef.so"
@@ -94,7 +106,7 @@ def main(argv: list[str]) -> None:
                 zout.writestr(target, data)
                 added += 1
 
-    print(f"{out_path}: добавлено записей {added} "
+    print(f"{out_path}: добавлено записей {added}, dex сдвинуты на {shift} "
           f"({os.path.getsize(out_path) / 1048576:.1f} МБ)")
 
 
