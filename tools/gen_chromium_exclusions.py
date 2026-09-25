@@ -36,20 +36,38 @@ def classes_of(path: str) -> set[str]:
     return result
 
 
-def coordinates(path: str) -> tuple[str, str] | None:
+def coordinates(path: str, gradle_cache: str = "") -> tuple[str, str] | None:
+    """group:name для артефакта.
+
+    AGP отдаёт пути двух видов: из кэша модулей (.../files-2.1/<group>/<name>/<version>/…)
+    и из transforms (.../transforms/<hash>/transformed/jetified-<name>-<version>/…).
+    Во втором случае group в пути отсутствует, поэтому ищем модуль в кэше по имени и версии.
+    """
     parts = path.split(os.sep)
-    if "files-2.1" not in parts:
-        return None
-    i = parts.index("files-2.1")
-    if len(parts) < i + 4:
-        return None
-    return parts[i + 1], parts[i + 2]
+    if "files-2.1" in parts:
+        i = parts.index("files-2.1")
+        return (parts[i + 1], parts[i + 2]) if len(parts) >= i + 4 else None
+
+    for part in parts:
+        if part.startswith("jetified-") or part.startswith("_"):
+            stem = part.split("-", 1)[1] if part.startswith("jetified-") else part[1:]
+            if "-" not in stem:
+                continue
+            name, version = stem.rsplit("-", 1)
+            if not gradle_cache or not os.path.isdir(gradle_cache):
+                return None
+            for entry in os.listdir(gradle_cache):
+                candidate = os.path.join(gradle_cache, entry, name, version)
+                if os.path.isdir(candidate):
+                    return entry, name
+    return None
 
 
 def main(argv: list[str]) -> None:
     if len(argv) < 3:
         sys.exit(__doc__)
     aar, list_file, out_file = argv[0], argv[1], argv[2]
+    gradle_cache = argv[3] if len(argv) > 3 else os.path.expanduser("~/.gradle/caches/modules-2/files-2.1")
 
     aar_classes = classes_of(aar)
     print(f"классов в AAR: {len(aar_classes)}")
@@ -63,7 +81,7 @@ def main(argv: list[str]) -> None:
             shared = len(classes_of(path) & aar_classes)
             if not shared:
                 continue
-            coords = coordinates(path)
+            coords = coordinates(path, gradle_cache)
             if coords:
                 collisions[coords] = collisions.get(coords, 0) + shared
 
