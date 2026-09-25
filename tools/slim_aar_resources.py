@@ -58,6 +58,18 @@ def strip_declarations(blob: bytes, foreign: dict[str, set[str]]) -> tuple[bytes
     except ET.ParseError:
         return blob, removed
     for child in list(root):
+        # attr объявляются и в корне, и внутри <declare-styleable> — проверяем оба уровня,
+        # иначе дубликат остаётся и merger падает на «Duplicate value for resource attr/...».
+        if child.tag == "declare-styleable":
+            for sub in list(child):
+                names = foreign.get(sub.tag)
+                if names and sub.get("name") in names:
+                    child.remove(sub)
+                    key = f"declare-styleable/{sub.tag}"
+                    removed[key] = removed.get(key, 0) + 1
+            if len(child) == 0:
+                root.remove(child)
+            continue
         names = foreign.get(child.tag)
         if not names:
             continue
