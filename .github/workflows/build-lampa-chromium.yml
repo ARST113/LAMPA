@@ -136,7 +136,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
           ls -l /dev/kvm || true
 
-      - name: Эмулятор: установка, запуск, logcat, скриншот
+      - name: "Эмулятор: установка, запуск, logcat, скриншот"
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ env.API_LEVEL }}
