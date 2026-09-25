@@ -22,7 +22,7 @@ fun getAppVersion(
             packageManager.getPackageInfo(packageName, 0)
         }
         AppVersion(
-            versionName = packageInfo.versionName,
+            versionName = packageInfo.versionName ?: "unknown",   // compileSdk 36 помечает versionName как nullable
             versionNumber = PackageInfoCompat.getLongVersionCode(packageInfo),
         )
     } catch (_: Exception) {
