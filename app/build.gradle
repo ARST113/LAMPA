@@ -129,6 +129,14 @@ android {
             buildConfigField "boolean", "enableUpdate", "false"
             buildConfigField "String", "defaultAppUrl", "\"http://lampa.mx\""
         }
+        // Полный клиент с тремя движками: Crosswalk (XWalk), встроенный Chromium Cefrium
+        // и системный WebView (SysView). Рантайм Cefrium требует minSdk 29.
+        chromium {
+            minSdk 29
+            buildConfigField "boolean", "enableUpdate", "false"
+            buildConfigField "String", "defaultAppUrl", "\"\""
+            ndk { abiFilters(project.findProperty('abi') ?: 'arm64-v8a') }
+        }
     }
 
     packagingOptions {
@@ -206,6 +214,12 @@ dependencies {
     implementation 'org.conscrypt:conscrypt-android:2.5.3' // for TLS v1.3 on API < 29
     //noinspection GradleDependency 1.8.1 fails on build with old gradle
     implementation 'org.mozilla:rhino:1.7.15' // JavaScript to run PAC file to get correct proxies
+    // flavor chromium: Crosswalk как один из трёх движков + встроенный Chromium-рантайм Cefrium.
+    // AAR Cefrium подкладывает CI (app/libs/cefrium-sdk-*.aar): классы SDK собраны JDK 25,
+    // поэтому перед сборкой им понижается версия class-файлов (tools/downgrade_class_version.py),
+    // а код LAMPA обращается к ним через рефлексию.
+    chromiumImplementation fileTree(dir: 'libs', include: ['xwalk_shared_library-23.53.589.4.aar'])
+    chromiumImplementation fileTree(dir: 'libs', include: ['cefrium-sdk-*.aar'])
     // crosswalk latest
     liteApi fileTree(dir: 'libs', include: ['xwalk_shared_library-23.53.589.4.aar'])
     ruStoreApi fileTree(dir: 'libs', include: ['xwalk_shared_library-23.53.589.4.aar'])
