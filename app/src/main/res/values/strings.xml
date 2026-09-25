@@ -20,6 +20,7 @@
     <string name="change_url_title">Change Lampa URL</string>
     <string name="engine_crosswalk_obsolete">Crosswalk (XWalkLib) - obsolete</string>
     <string name="engine_crosswalk">Crosswalk (XWalkLib)</string>
+    <string name="engine_chromium">Chromium AC3/EAC3</string>
     <string name="engine_webkit">Android System WebView</string>
     <string name="engine_active">current</string>
     <string name="menu_title">Options Menu</string>
