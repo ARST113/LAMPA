@@ -1,0 +1,239 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Компоненты встроенного Chromium-рантайма (Cefrium/CEF) для flavor chromium.
+
+     Рантайм подкладывается в APK на этапе CI (tools/inject_cefrium_runtime.py), а не как
+     Gradle-зависимость: AAR SDK везёт полный ресурсный набор Chrome и конфликтует
+     с androidx по attr/string/layout, из-за чего resource merger падает.
+     Поэтому объявления компонентов живут здесь, в манифесте конкретного flavor. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application
+        android:extractNativeLibs="true"
+        tools:replace="android:extractNativeLibs">
+
+        <provider
+            android:name="com.cefrium.CefriumInitProvider"
+            android:authorities="${applicationId}.cefriuminit"
+            android:exported="false"
+            android:initOrder="100" />
+
+        <service
+            android:name="com.cefrium.CefriumMediaService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService0"
+            android:exported="false"
+            android:process=":sandboxed_process0"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService1"
+            android:exported="false"
+            android:process=":sandboxed_process1"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService2"
+            android:exported="false"
+            android:process=":sandboxed_process2"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService3"
+            android:exported="false"
+            android:process=":sandboxed_process3"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService4"
+            android:exported="false"
+            android:process=":sandboxed_process4"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService5"
+            android:exported="false"
+            android:process=":sandboxed_process5"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService6"
+            android:exported="false"
+            android:process=":sandboxed_process6"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService7"
+            android:exported="false"
+            android:process=":sandboxed_process7"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService8"
+            android:exported="false"
+            android:process=":sandboxed_process8"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService9"
+            android:exported="false"
+            android:process=":sandboxed_process9"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService10"
+            android:exported="false"
+            android:process=":sandboxed_process10"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService11"
+            android:exported="false"
+            android:process=":sandboxed_process11"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService12"
+            android:exported="false"
+            android:process=":sandboxed_process12"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService13"
+            android:exported="false"
+            android:process=":sandboxed_process13"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService14"
+            android:exported="false"
+            android:process=":sandboxed_process14"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService15"
+            android:exported="false"
+            android:process=":sandboxed_process15"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService16"
+            android:exported="false"
+            android:process=":sandboxed_process16"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService17"
+            android:exported="false"
+            android:process=":sandboxed_process17"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService18"
+            android:exported="false"
+            android:process=":sandboxed_process18"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService19"
+            android:exported="false"
+            android:process=":sandboxed_process19"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService20"
+            android:exported="false"
+            android:process=":sandboxed_process20"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService21"
+            android:exported="false"
+            android:process=":sandboxed_process21"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService22"
+            android:exported="false"
+            android:process=":sandboxed_process22"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService23"
+            android:exported="false"
+            android:process=":sandboxed_process23"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService24"
+            android:exported="false"
+            android:process=":sandboxed_process24"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService25"
+            android:exported="false"
+            android:process=":sandboxed_process25"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService26"
+            android:exported="false"
+            android:process=":sandboxed_process26"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService27"
+            android:exported="false"
+            android:process=":sandboxed_process27"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService28"
+            android:exported="false"
+            android:process=":sandboxed_process28"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService29"
+            android:exported="false"
+            android:process=":sandboxed_process29"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService30"
+            android:exported="false"
+            android:process=":sandboxed_process30"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService31"
+            android:exported="false"
+            android:process=":sandboxed_process31"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService32"
+            android:exported="false"
+            android:process=":sandboxed_process32"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService33"
+            android:exported="false"
+            android:process=":sandboxed_process33"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService34"
+            android:exported="false"
+            android:process=":sandboxed_process34"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService35"
+            android:exported="false"
+            android:process=":sandboxed_process35"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService36"
+            android:exported="false"
+            android:process=":sandboxed_process36"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService37"
+            android:exported="false"
+            android:process=":sandboxed_process37"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService38"
+            android:exported="false"
+            android:process=":sandboxed_process38"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.SandboxedProcessService39"
+            android:exported="false"
+            android:process=":sandboxed_process39"
+            android:isolatedProcess="true" />
+        <service
+            android:name="org.chromium.content.app.PrivilegedProcessService0"
+            android:exported="false"
+            android:process=":privileged_process0" />
+        <service
+            android:name="org.chromium.content.app.PrivilegedProcessService1"
+            android:exported="false"
+            android:process=":privileged_process1" />
+        <service
+            android:name="org.chromium.content.app.PrivilegedProcessService2"
+            android:exported="false"
+            android:process=":privileged_process2" />
+    </application>
+</manifest>
