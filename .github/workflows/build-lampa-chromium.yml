@@ -29,6 +29,12 @@ on:
         default: arm64-v8a
         type: choice
         options: [arm64-v8a, x86_64]
+      engine:
+        description: 'Движок для эмуляторной проверки'
+        required: false
+        default: Cefrium
+        type: choice
+        options: [default, XWalk, Cefrium, SysView]
       run_emulator:
         description: 'Прогонять проверку на эмуляторе'
         required: false
@@ -51,6 +57,7 @@ env:
   FLAVOR: ${{ github.event.inputs.flavor || 'chromium' }}
   API_LEVEL: ${{ github.event.inputs.api_level || '29' }}
   ABI: ${{ github.event.inputs.abi || 'x86_64' }}
+  ENGINE: ${{ github.event.inputs.engine || 'Cefrium' }}
 
 jobs:
   build:
@@ -176,7 +183,7 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: bash ci/smoke_lampa.sh "$FLAVOR"
+          script: bash ci/smoke_lampa.sh "$FLAVOR" "$ENGINE"
 
       - name: Выгрузка доказательств с эмулятора
         if: always()
