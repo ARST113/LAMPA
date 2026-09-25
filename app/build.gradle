@@ -218,7 +218,6 @@ dependencies {
     // AAR Cefrium подкладывает CI (app/libs/cefrium-sdk-*.aar): классы SDK собраны JDK 25,
     // поэтому перед сборкой им понижается версия class-файлов (tools/downgrade_class_version.py),
     // а код LAMPA обращается к ним через рефлексию.
-    chromiumImplementation fileTree(dir: 'libs', include: ['xwalk_shared_library-23.53.589.4.aar'])
     // Рантайм Cefrium НЕ подключается как Gradle-зависимость: его AAR везёт полный ресурсный
     // набор Chrome и валит mergeChromiumDebugResources конфликтами attr/string с androidx.
     // CI декоирует классы отдельно (d8) и инжектит рантайм в готовый APK:
@@ -229,8 +228,5 @@ dependencies {
     chromiumImplementation 'androidx.core:core:1.16.0'
     chromiumImplementation 'androidx.browser:browser:1.8.0'
     chromiumImplementation 'androidx.datastore:datastore-preferences:1.1.1'
-    // crosswalk latest
-    liteApi fileTree(dir: 'libs', include: ['xwalk_shared_library-23.53.589.4.aar'])
-    ruStoreApi fileTree(dir: 'libs', include: ['xwalk_shared_library-23.53.589.4.aar'])
-    fullApi fileTree(dir: 'libs', include: ['xwalk_core_library-23.53.589.4.aar'])
+    // Crosswalk удалён из проекта: движки — встроенный Chromium (Cefrium) и системный WebView.
 }
