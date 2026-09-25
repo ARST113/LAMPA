@@ -72,6 +72,7 @@ import org.xwalk.core.XWalkInitializer
 import org.xwalk.core.XWalkPreferences
 import top.rootu.lampa.browser.Browser
 import top.rootu.lampa.browser.SysView
+import top.rootu.lampa.browser.Cefrium
 import top.rootu.lampa.browser.XWalk
 import top.rootu.lampa.channels.ChannelManager.getChannelDisplayName
 import top.rootu.lampa.channels.WatchNext
