@@ -148,6 +148,12 @@ android {
     namespace 'top.rootu.lampa'
 }
 
+// Эксперимент: классы AAR Cefrium оставляем нетронутыми (в probe-приложении движок работает
+// именно со своими классами), поэтому разрешаем дубли классов с зависимостями LAMPA —
+// иначе AGP валит сборку на checkChromiumDebugDuplicateClasses. Кто из дублей попадёт в dex,
+// решает порядок зависимостей; проверяем это на эмуляторе.
+tasks.matching { it.name == 'checkChromiumDebugDuplicateClasses' }.configureEach { enabled = false }
+
 // AAR Cefrium везёт внутри себя копию ресурсов mediarouter. Настоящий mediarouter (его тянет
 // androidx.recommendation) рядом с ней даёт дублирующиеся attr, и mergeChromiumDebugResources
 // падает. Классы mediarouter в коде LAMPA не используются, поэтому для flavor chromium
