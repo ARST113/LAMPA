@@ -518,6 +518,10 @@ class MainActivity : BaseActivity(),
                 useSystemWebView()
             }
 
+            "Cefrium" -> {
+                useCefrium()
+            }
+
             else -> {
                 setContentView(R.layout.activity_empty)
                 showBrowserInputDialog()
@@ -544,6 +548,22 @@ class MainActivity : BaseActivity(),
         loaderView = findViewById(R.id.loaderView)
         browser = SysView(this, R.id.webView)
         browser?.initialize()
+    }
+
+    /**
+     * Третий движок — встроенный Chromium (Cefrium) с поддержкой AC3/EAC3.
+     * Без молчаливого отката на WebView: выбор движка остаётся за пользователем,
+     * а ошибка попадает в logcat с тегом LampaCefrium.
+     */
+    private fun useCefrium() {
+        setContentView(R.layout.activity_cefrium)
+        loaderView = findViewById(R.id.loaderView)
+        try {
+            browser = Cefrium(this, R.id.cefriumView)
+            browser?.initialize()
+        } catch (e: Exception) {
+            Log.e("LampaCefrium", "Движок Chromium (Cefrium) не поднялся", e)
+        }
     }
 
     private fun handleSpeechResult(result: androidx.activity.result.ActivityResult) {
@@ -1562,16 +1582,28 @@ class MainActivity : BaseActivity(),
                     else "${getString(R.string.engine_crosswalk)} $xWalkVersion"
                 }
 
-                val webkitTitle = if (isCrosswalkActive) {
-                    "${getString(R.string.engine_webkit)} $webViewVersion"
-                } else {
+                val isWebkitActive = SELECTED_BROWSER == "SysView"
+                val webkitTitle = if (isWebkitActive) {
                     "${getString(R.string.engine_webkit)} - ${getString(R.string.engine_active)} $webViewVersion"
+                } else {
+                    "${getString(R.string.engine_webkit)} $webViewVersion"
                 }
 
-                val titles = listOf(crosswalkTitle, webkitTitle)
-                val actions = listOf("XWalk", "SysView")
-                val icons = listOf(R.drawable.round_explorer_24, R.drawable.round_explorer_24)
-                selectedIndex = if (isCrosswalkActive) 0 else 1
+                val isCefriumActive = SELECTED_BROWSER == "Cefrium"
+                val cefriumTitle = if (isCefriumActive) {
+                    "${getString(R.string.engine_chromium)} - ${getString(R.string.engine_active)}"
+                } else {
+                    getString(R.string.engine_chromium)
+                }
+
+                val titles = listOf(crosswalkTitle, cefriumTitle, webkitTitle)
+                val actions = listOf("XWalk", "Cefrium", "SysView")
+                val icons = listOf(R.drawable.round_explorer_24, R.drawable.round_explorer_24, R.drawable.round_explorer_24)
+                selectedIndex = when {
+                    isCrosswalkActive -> 0
+                    isCefriumActive -> 1
+                    else -> 2
+                }
 
                 Triple(titles, actions, icons)
             } else { // No WebView
