@@ -219,10 +219,11 @@ dependencies {
     // поэтому перед сборкой им понижается версия class-файлов (tools/downgrade_class_version.py),
     // а код LAMPA обращается к ним через рефлексию.
     chromiumImplementation fileTree(dir: 'libs', include: ['xwalk_shared_library-23.53.589.4.aar'])
-    chromiumImplementation fileTree(dir: 'libs', include: ['cefrium-sdk-*.aar'])
-    // AAR Cefrium везёт внутри себя ресурсы androidx (mediarouter/material/appcompat).
-    // Если рядом оказывается другая версия той же библиотеки, resource merger падает на
-    // несовпадающих attr — поэтому версии выровнены ровно по POM самого SDK.
+    // Рантайм Cefrium НЕ подключается как Gradle-зависимость: его AAR везёт полный ресурсный
+    // набор Chrome и валит mergeChromiumDebugResources конфликтами attr/string с androidx.
+    // CI декоирует классы отдельно (d8) и инжектит рантайм в готовый APK:
+    // см. tools/inject_cefrium_runtime.py и src/chromium/AndroidManifest.xml.
+    // Версии androidx ниже выровнены по POM SDK — чтобы классы и ресурсы совпадали на рантайме.
     chromiumImplementation 'androidx.appcompat:appcompat:1.7.0'
     chromiumImplementation 'androidx.mediarouter:mediarouter:1.7.0'
     chromiumImplementation 'androidx.core:core:1.16.0'
