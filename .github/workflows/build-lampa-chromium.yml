@@ -109,7 +109,18 @@ jobs:
           # Классы SDK собраны JDK 25 (major 69) — D8 из AGP 8.10 их не принимает,
           # поэтому понижаем версию class-файлов до Java 11.
           python3 tools/downgrade_class_version.py work/aar/classes.jar work/aar/classes-55.jar 55 | tee artifacts/runtime-downgrade.log
-          python3 tools/repack_aar.py "work/$name" work/aar/classes-55.jar "app/libs/cefrium-sdk-$ABI.aar"
+          python3 tools/repack_aar.py "work/$name" work/aar/classes-55.jar "work/cefrium-stage.aar"
+          ls -la work/cefrium-stage.aar
+
+      - name: Срезать из AAR Cefrium дублирующиеся ресурсы
+        if: ${{ env.FLAVOR == 'chromium' }}
+        run: |
+          set -euo pipefail
+          # AAR ещё не в app/libs, поэтому список содержит только остальные зависимости —
+          # их определения ресурсов остаются, а копии внутри AAR убираются.
+          ./gradlew --no-daemon -q :app:printChromiumRuntimeArtifacts > work/classpath.txt
+          echo "артефактов в класспути: $(wc -l < work/classpath.txt)"
+          python3 tools/slim_aar_resources.py work/cefrium-stage.aar "app/libs/cefrium-sdk-$ABI.aar" work/classpath.txt | tee artifacts/slim-aar.log
           ls -la app/libs/
 
       - name: Сборка ${FLAVOR}Debug
