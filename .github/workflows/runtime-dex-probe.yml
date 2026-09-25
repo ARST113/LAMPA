@@ -54,7 +54,7 @@ jobs:
           python3 tools/downgrade_class_version.py work/classes.jar work/classes-65.jar 65 | tee artifacts/downgrade-65.log
           python3 tools/downgrade_class_version.py work/classes.jar work/classes-55.jar 55 | tee artifacts/downgrade-55.log
 
-      - name: D8: исходный байткод (major 69)
+      - name: "D8: исходный байткод (major 69)"
         continue-on-error: true
         run: |
           D8="$ANDROID_SDK_ROOT/build-tools/35.0.0/d8"
@@ -63,7 +63,7 @@ jobs:
           echo "exit=$?" | tee -a artifacts/d8-major69.log
           tail -25 artifacts/d8-major69.log
 
-      - name: D8: понижение до Java 21 (major 65)
+      - name: "D8: понижение до Java 21 (major 65)"
         continue-on-error: true
         run: |
           D8="$ANDROID_SDK_ROOT/build-tools/35.0.0/d8"
@@ -72,7 +72,7 @@ jobs:
           echo "exit=$?" | tee -a artifacts/d8-major65.log
           tail -25 artifacts/d8-major65.log
 
-      - name: D8: понижение до Java 11 (major 55)
+      - name: "D8: понижение до Java 11 (major 55)"
         continue-on-error: true
         run: |
           D8="$ANDROID_SDK_ROOT/build-tools/35.0.0/d8"
