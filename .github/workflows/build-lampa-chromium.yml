@@ -140,6 +140,25 @@ jobs:
           (cd artifacts && sha256sum "Lampa-$FLAVOR-debug.apk" | tee SHA256SUMS)
           ls -lh artifacts/
 
+      - name: Диагностика конфликта ресурсов (при падении)
+        if: failure()
+        run: |
+          set -uo pipefail
+          mkdir -p artifacts
+          out=artifacts/resource-conflict.txt
+          : > "$out"
+          echo '=== поиск merger.xml ===' | tee -a "$out"
+          find app/build/intermediates -name 'merger.xml' 2>/dev/null | head -5 | tee -a "$out"
+          for m in $(find app/build/intermediates -name 'merger.xml' 2>/dev/null | head -5); do
+            echo "--- $m" | tee -a "$out"
+            grep -c 'finishPrimaryWithSecondary' "$m" 2>/dev/null | tee -a "$out" || true
+            grep -B 12 -A 3 'finishPrimaryWithSecondary' "$m" 2>/dev/null | head -80 | tee -a "$out" || true
+          done
+          echo '=== файлы, где встречается ресурс ===' | tee -a "$out"
+          grep -rl 'finishPrimaryWithSecondary' app/build/intermediates 2>/dev/null | head -10 | tee -a "$out" || true
+          echo '=== какие AAR объявляют attr (по jetified-каталогам) ===' | tee -a "$out"
+          grep -rl 'finishPrimaryWithSecondary' ~/.gradle/caches/8.11.1/transforms/*/transformed/*/res/values 2>/dev/null | head -10 | tee -a "$out" || true
+          ls -la "$out"
       - name: Выгрузка APK
         if: always()
         uses: actions/upload-artifact@v4
