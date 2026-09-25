@@ -109,7 +109,8 @@ jobs:
           # Классы SDK собраны JDK 25 (major 69) — D8 из AGP 8.10 их не принимает,
           # поэтому понижаем версию class-файлов до Java 11.
           python3 tools/downgrade_class_version.py work/aar/classes.jar work/aar/classes-55.jar 55 | tee artifacts/runtime-downgrade.log
-          echo "RUNTIME_AAR=$PWD/work/$name" >> "$GITHUB_ENV"
+          python3 tools/repack_aar.py "work/$name" work/aar/classes-55.jar "app/libs/cefrium-sdk-$ABI.aar"
+          ls -la app/libs/
 
       - name: Сборка ${FLAVOR}Debug
         run: |
@@ -117,42 +118,12 @@ jobs:
           mkdir -p artifacts
           ./gradlew --no-daemon ":app:assemble${FLAVOR^}Debug" -Pabi="$ABI" --stacktrace 2>&1 | tee artifacts/gradle-build.log
 
-      - name: Инжектировать рантайм Cefrium в APK (flavor chromium)
-        if: ${{ env.FLAVOR == 'chromium' }}
-        run: |
-          set -euo pipefail
-          BT="$ANDROID_SDK_ROOT/build-tools/35.0.0"
-          gradle_apk=$(find app/build/outputs/apk/chromium/debug -maxdepth 1 -name '*.apk' | head -1)
-          test -n "$gradle_apk"
-          mkdir -p work/dex
-          # 1) классы SDK (major 55) → dex
-          "$BT/d8" --min-api 29 --lib "$ANDROID_SDK_ROOT/platforms/android-36/android.jar" \
-            --output work/dex work/aar/classes-55.jar 2>&1 | tee artifacts/d8-runtime.log
-          ls -la work/dex
-          # 2) dex + libcef.so + ассеты CEF в APK
-          # один рабочий каталог: d8 кладёт dex в work/dex, туда же пишет и скрипт инъекции
-          python3 tools/inject_cefrium_runtime.py "$gradle_apk" "$RUNTIME_AAR" "$ABI" work | tee artifacts/inject.log
-          # 3) zipalign + подпись debug-ключом (APK должен ставиться на эмулятор)
-          keytool -genkeypair -keystore work/debug.keystore -storepass android -keypass android \
-            -alias androiddebugkey -dname "CN=Android Debug,O=Android,C=US" -keyalg RSA -keysize 2048 \
-            -validity 10000 > /dev/null 2>&1
-          "$BT/zipalign" -f -p 4 work/injected.apk work/aligned.apk
-          "$BT/apksigner" sign --ks work/debug.keystore --ks-pass pass:android --key-pass pass:android \
-            --out work/final.apk work/aligned.apk
-          "$BT/apksigner" verify --print-certs work/final.apk | head -5
-          ls -la work/final.apk
-          echo "INJECTED_APK=$PWD/work/final.apk" >> "$GITHUB_ENV"
-
       - name: Собрать APK и посчитать SHA256
         run: |
           set -euo pipefail
           log=$(printf '%s' "$FLAVOR" | tr '[:upper:]' '[:lower:]')
           dir="app/build/outputs/apk/$log/debug"
-          if [[ -n "${INJECTED_APK:-}" ]]; then
-            apk="$INJECTED_APK"
-          else
-            apk=$(find "$dir" -maxdepth 1 -name '*.apk' 2>/dev/null | head -1)
-          fi
+          apk=$(find "$dir" -maxdepth 1 -name '*.apk' 2>/dev/null | head -1)
           test -n "$apk" || { echo "APK не найден в $dir" >&2; ls -R app/build/outputs/apk || true; exit 1; }
           cp "$apk" "artifacts/Lampa-$FLAVOR-debug.apk"
           (cd artifacts && sha256sum "Lampa-$FLAVOR-debug.apk" | tee SHA256SUMS)
