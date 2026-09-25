@@ -148,6 +148,14 @@ android {
     namespace 'top.rootu.lampa'
 }
 
+// AAR Cefrium везёт внутри себя копию ресурсов mediarouter. Настоящий mediarouter (его тянет
+// androidx.recommendation) рядом с ней даёт дублирующиеся attr, и mergeChromiumDebugResources
+// падает. Классы mediarouter в коде LAMPA не используются, поэтому для flavor chromium
+// исключаем его из зависимостей.
+configurations.matching { it.name.toLowerCase().startsWith('chromium') }.configureEach {
+    exclude group: 'androidx.mediarouter', module: 'mediarouter'
+}
+
 dependencies {
     // https://developer.android.com/studio/write/java8-support#library-desugaring
     //noinspection GradleDependency 2.0.4 for AGP 7.4
