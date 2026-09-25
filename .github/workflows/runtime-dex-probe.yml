@@ -35,7 +35,7 @@ jobs:
         run: |
           SDKMANAGER=$(find "${ANDROID_SDK_ROOT}/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort -V | tail -1)
           yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
-          "$SDKMANAGER" --install "build-tools;35.0.0" "platform-tools" > /dev/null
+          "$SDKMANAGER" --install "build-tools;35.0.0" "platforms;android-36" "platform-tools" > /dev/null
           ls -la "$ANDROID_SDK_ROOT/build-tools/35.0.0/d8"
 
       - name: Скачать SDK-AAR и распаковать classes.jar
@@ -58,8 +58,9 @@ jobs:
         continue-on-error: true
         run: |
           D8="$ANDROID_SDK_ROOT/build-tools/35.0.0/d8"
+          mkdir -p work/dex-69
           set +e
-          "$D8" --min-api 23 --output work/dex-69 work/classes.jar > artifacts/d8-major69.log 2>&1
+          "$D8" --min-api 23 --lib "$ANDROID_SDK_ROOT/platforms/android-36/android.jar" --output work/dex-69 work/classes.jar > artifacts/d8-major69.log 2>&1
           echo "exit=$?" | tee -a artifacts/d8-major69.log
           tail -25 artifacts/d8-major69.log
 
@@ -67,8 +68,9 @@ jobs:
         continue-on-error: true
         run: |
           D8="$ANDROID_SDK_ROOT/build-tools/35.0.0/d8"
+          mkdir -p work/dex-65
           set +e
-          "$D8" --min-api 23 --output work/dex-65 work/classes-65.jar > artifacts/d8-major65.log 2>&1
+          "$D8" --min-api 23 --lib "$ANDROID_SDK_ROOT/platforms/android-36/android.jar" --output work/dex-65 work/classes-65.jar > artifacts/d8-major65.log 2>&1
           echo "exit=$?" | tee -a artifacts/d8-major65.log
           tail -25 artifacts/d8-major65.log
 
@@ -76,8 +78,9 @@ jobs:
         continue-on-error: true
         run: |
           D8="$ANDROID_SDK_ROOT/build-tools/35.0.0/d8"
+          mkdir -p work/dex-55
           set +e
-          "$D8" --min-api 23 --output work/dex-55 work/classes-55.jar > artifacts/d8-major55.log 2>&1
+          "$D8" --min-api 23 --lib "$ANDROID_SDK_ROOT/platforms/android-36/android.jar" --output work/dex-55 work/classes-55.jar > artifacts/d8-major55.log 2>&1
           echo "exit=$?" | tee -a artifacts/d8-major55.log
           tail -25 artifacts/d8-major55.log
 
