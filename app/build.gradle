@@ -40,7 +40,7 @@ def getRepoId = { ->
             standardOutput = stdout
         }
         def url = stdout.toString().trim()
-        def matcher = url =~ /github\.com[:/]([^/]+\/[^/.]+)/
+        def matcher = url =~ "github\\.com[:/]([^/]+/[^/.]+)"
         if (matcher.find()) {
             return matcher.group(1)
         }
@@ -53,10 +53,10 @@ def getRepoId = { ->
 
 android {
     //noinspection GradleDependency
-    compileSdk 34
+    compileSdk 36
     defaultConfig {
         applicationId "top.rootu.lampa"
-        minSdkVersion 16
+        minSdkVersion 23
         //noinspection ExpiredTargetSdkVersion
         targetSdkVersion 28
         versionCode getVersionCode()
@@ -78,7 +78,7 @@ android {
                 storePassword "$keystoreProperties.storePassword"
                 keyAlias "$keystoreProperties.keyAlias"
                 keyPassword "$keystoreProperties.keyPassword"
-            } else {
+            } else if (System.getenv('KEYSTORE_FILE')) {
                 storeFile file(System.getenv('KEYSTORE_FILE'))
                 storePassword System.getenv('KEYSTORE_PASSWORD')
                 keyAlias System.getenv('RELEASE_SIGN_KEY_ALIAS')
