@@ -62,7 +62,7 @@ interface Browser {
      * <pre class="prettyprint">
      * class JsObject {
      * @JavascriptInterface
-     * @org.xwalk.core.JavascriptInterface
+     * @android.webkit.JavascriptInterface
      * public String toString() { return "injectedObject"; }
      * }
      * webview.getSettings().setJavaScriptEnabled(true);
