@@ -239,3 +239,14 @@ dependencies {
     chromiumImplementation fileTree(dir: 'libs', include: ['cefrium-sdk-*.aar'])
     // Crosswalk удалён из проекта: движки — встроенный Chromium (Cefrium) и системный WebView.
 }
+
+// CI печатает этим списком пути AAR/JAR рантайм-класспути flavor chromium, чтобы срезать
+// из AAR Cefrium ресурсы, которые уже объявлены этими библиотеками (иначе
+// mergeChromiumDebugResources падает на дублирующихся attr).
+tasks.register('printChromiumRuntimeArtifacts') {
+    doLast {
+        configurations.getByName('chromiumDebugRuntimeClasspath').incoming.artifacts.each {
+            println it.file.absolutePath
+        }
+    }
+}
