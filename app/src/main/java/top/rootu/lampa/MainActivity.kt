@@ -71,6 +71,7 @@ import org.xwalk.core.MyXWalkUpdater
 import org.xwalk.core.XWalkInitializer
 import org.xwalk.core.XWalkPreferences
 import top.rootu.lampa.browser.Browser
+import top.rootu.lampa.browser.Cefrium
 import top.rootu.lampa.browser.SysView
 import top.rootu.lampa.browser.XWalk
 import top.rootu.lampa.channels.ChannelManager.getChannelDisplayName
@@ -248,8 +249,7 @@ class MainActivity : BaseActivity(),
         // Properties
         var LAMPA_URL: String = ""
         var SELECTED_PLAYER: String? = ""
-        var SELECTED_BROWSER: String? =
-            if (VERSION.SDK_INT < Build.VERSION_CODES.KITKAT) "XWalk" else ""
+        var SELECTED_BROWSER: String? = "Cefrium"
         var delayedVoidJsFunc = mutableListOf<List<String>>()
         var playerTimeCode: String = "continue"
         var playerAutoNext: Boolean = true
@@ -333,6 +333,14 @@ class MainActivity : BaseActivity(),
         if (browserInitComplete && !(isPlayerLaunching && keepPlayerConnection))
             browser?.pauseTimers()
         super.onPause()
+    }
+
+    @Deprecated("Legacy activity result is required by the embedded Cefrium browser")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if ((browser as? Cefrium)?.onActivityResult(requestCode, resultCode, data) == true) {
+            return
+        }
+        super.onActivityResult(requestCode, resultCode, data)
     }
 
     override fun onDestroy() {
@@ -488,37 +496,25 @@ class MainActivity : BaseActivity(),
 
     private fun setupBrowser() {
         SELECTED_BROWSER = appBrowser
-        if (!Helpers.isWebViewAvailable(this)
-            || (SELECTED_BROWSER.isNullOrEmpty() && VERSION.SDK_INT < Build.VERSION_CODES.KITKAT)
-        ) {
-            SELECTED_BROWSER = "XWalk"
+        if (SELECTED_BROWSER.isNullOrEmpty()) {
+            SELECTED_BROWSER = "Cefrium"
         }
-        val wvvMajorVersion: Double = try {
-            Helpers.getWebViewVersion(this).substringBefore(".").toDouble()
-        } catch (_: NumberFormatException) {
-            0.0
+
+        // Cefrium is self-contained and does not depend on Android System WebView.
+        // If a previously saved SysView choice is unavailable, fall back to Cefrium.
+        if (SELECTED_BROWSER == "SysView" && !Helpers.isWebViewAvailable(this)) {
+            SELECTED_BROWSER = "Cefrium"
         }
-        // Use WebView on RuStore builds and modern Androids by default
-        if (Helpers.isWebViewAvailable(this)
-            && SELECTED_BROWSER.isNullOrEmpty()
-            && (BuildConfig.FLAVOR == "ruStore" || wvvMajorVersion > 53.589)
-        ) {
-            SELECTED_BROWSER = "SysView"
-        }
+
         when (SELECTED_BROWSER) {
+            "Cefrium" -> {
+                useCefrium()
+            }
+
             "XWalk" -> {
-                // Must call initAsync() before anything that involves the embedding
-                // API, including invoking setContentView() with the layout which
-                // holds the XWalkView object.
+                // Keep the original Crosswalk initialization path untouched.
                 mXWalkInitializer = XWalkInitializer(this, this)
                 mXWalkInitializer?.initAsync()
-                // Until onXWalkInitCompleted() is invoked, you should do nothing with the
-                // embedding API except the following:
-                // 1. Instantiate the XWalkView object
-                // 2. Call XWalkPreferences.setValue()
-                // 3. Call mXWalkView.setXXClient(), e.g., setUIClient
-                // 4. Call mXWalkView.setXXListener(), e.g., setDownloadListener
-                // 5. Call mXWalkView.addJavascriptInterface()
                 XWalkPreferences.setValue(XWalkPreferences.REMOTE_DEBUGGING, true)
                 XWalkPreferences.setValue(XWalkPreferences.ENABLE_JAVASCRIPT, true)
             }
@@ -528,12 +524,20 @@ class MainActivity : BaseActivity(),
             }
 
             else -> {
-                setContentView(R.layout.activity_empty)
-                showBrowserInputDialog()
+                SELECTED_BROWSER = "Cefrium"
+                appBrowser = SELECTED_BROWSER
+                useCefrium()
             }
         }
-        // https://developer.android.com/develop/background-work/background-tasks/scheduling/wakelock
+
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+
+    private fun useCefrium() {
+        setContentView(R.layout.activity_cefrium)
+        loaderView = findViewById(R.id.loaderView)
+        browser = Cefrium(this, R.id.cefriumContainer)
+        browser?.initialize()
     }
 
     private fun useCrossWalk() {
@@ -1562,72 +1566,45 @@ class MainActivity : BaseActivity(),
     }
 
     private fun showBrowserInputDialog() {
-
         val xWalkVersion = "53.589.4"
-        var selectedIndex = 0
+        val titles = mutableListOf<String>()
+        val actions = mutableListOf<String>()
+        val icons = mutableListOf<Int>()
 
-        // Determine available browser options
-        val (menuItemsTitles, menuItemsActions, menuIcons) =
-            if (Helpers.isWebViewAvailable(this)) {
-                val webViewVersion = Helpers.getWebViewVersion(this)
-                val webViewMajorVersion = try {
-                    webViewVersion.substringBefore(".").toDouble()
-                } catch (_: NumberFormatException) {
-                    0.0
-                }
-
-                val isCrosswalkActive = SELECTED_BROWSER == "XWalk"
-
-                val crosswalkTitle = if (isCrosswalkActive) {
-                    "${getString(R.string.engine_crosswalk)} - ${getString(R.string.engine_active)} $xWalkVersion"
-                } else {
-                    if (webViewMajorVersion > 53.589) "${getString(R.string.engine_crosswalk_obsolete)} $xWalkVersion"
-                    else "${getString(R.string.engine_crosswalk)} $xWalkVersion"
-                }
-
-                val webkitTitle = if (isCrosswalkActive) {
-                    "${getString(R.string.engine_webkit)} $webViewVersion"
-                } else {
-                    "${getString(R.string.engine_webkit)} - ${getString(R.string.engine_active)} $webViewVersion"
-                }
-
-                val titles = listOf(crosswalkTitle, webkitTitle)
-                val actions = listOf("XWalk", "SysView")
-                val icons = listOf(R.drawable.round_explorer_24, R.drawable.round_explorer_24)
-                selectedIndex = if (isCrosswalkActive) 0 else 1
-
-                Triple(titles, actions, icons)
-            } else { // No WebView
-                val crosswalkTitle = if (SELECTED_BROWSER == "XWalk") {
-                    "${getString(R.string.engine_crosswalk)} - ${getString(R.string.engine_active)} $xWalkVersion"
-                } else {
-                    "${getString(R.string.engine_crosswalk)} $xWalkVersion"
-                }
-
-                val titles = listOf(crosswalkTitle)
-                val actions = listOf("XWalk")
-                val icons = listOf(R.drawable.round_explorer_24)
-
-                Triple(titles, actions, icons)
+        fun addEngine(title: String, action: String) {
+            val active = action == SELECTED_BROWSER
+            titles += if (active) {
+                "$title - ${getString(R.string.engine_active)}"
+            } else {
+                title
             }
+            actions += action
+            icons += R.drawable.round_explorer_24
+        }
 
-        // Set up the adapter
-        val adapter = ImgArrayAdapter(this, menuItemsTitles, menuIcons)
+        addEngine(getString(R.string.engine_cefrium), "Cefrium")
+        addEngine("${getString(R.string.engine_crosswalk)} $xWalkVersion", "XWalk")
 
-        // Configure the dialog
+        if (Helpers.isWebViewAvailable(this)) {
+            val webViewVersion = Helpers.getWebViewVersion(this)
+            addEngine("${getString(R.string.engine_webkit)} $webViewVersion", "SysView")
+        }
+
+        val selectedIndex = actions.indexOf(SELECTED_BROWSER).coerceAtLeast(0)
+        val adapter = ImgArrayAdapter(this, titles, icons)
+
         val dialog = AlertDialog.Builder(this).apply {
             setTitle(getString(R.string.change_engine_title))
             setAdapter(adapter) { dialog, which ->
                 dialog.dismiss()
-                if (menuItemsActions[which] != SELECTED_BROWSER) {
-                    appBrowser = menuItemsActions[which]
+                if (actions[which] != SELECTED_BROWSER) {
+                    appBrowser = actions[which]
                     this@MainActivity.recreate()
                 }
             }
         }.create()
-        // Show the dialog
+
         showFullScreenDialog(dialog)
-        // Set active row
         adapter.setSelectedItem(selectedIndex)
     }
 
