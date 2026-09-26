@@ -10,17 +10,28 @@ if (customCefrium && !(customCefriumSha256 ==~ /[0-9a-f]{64}/)) {
     throw new GradleException('A custom Cefrium AAR requires -PcefriumSha256=<64 lowercase hex digits>')
 }
 
+// LAMPA's web UI asks the app for its build number through AndroidJS.appVersion()
+// ("<versionName>-<versionCode>") and switches native features on with checkVersion()
+// in app.js: 16 = AndroidJS.httpReq (every online source / parser), 25 = voiceStart,
+// 28 = updateChannel.
+// 'origin/main' does not exist in this fork, so this used to fall back to versionCode 1:
+// the web UI then treated the app as prehistoric, never called AndroidJS.httpReq and the
+// plugin DB update died with "Cannot read properties of undefined (reading 'find')"
+// (Bell.push runs before the bell element exists) - parsers and online sources dead.
+// 568 = commit count of lampa-app/LAMPA main at the v1.13.1 release.
+def MIN_VERSION_CODE = 568
+
 def getVersionCode = { ->
     try {
         def code = new ByteArrayOutputStream()
         exec {
-            commandLine 'git', 'rev-list', '--count', 'origin/main'
+            commandLine 'git', 'rev-list', '--count', 'HEAD'
             standardOutput = code
         }
-        return Integer.parseInt(code.toString().trim())
+        return Math.max(Integer.parseInt(code.toString().trim()), MIN_VERSION_CODE)
     }
     catch (ignored) {
-        return 1
+        return MIN_VERSION_CODE
     }
 }
 
