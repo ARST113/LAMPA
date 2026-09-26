@@ -45,11 +45,11 @@ jobs:
           java-version: '25'
           cache: gradle
 
-      - name: Install Android SDK 37
+      - name: Install Android SDK 36
         shell: bash
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platform-tools" "platforms;android-37" "build-tools;36.0.0"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
       - name: Download saved Chromium 152 AC3/EAC3 runtime
         shell: bash
