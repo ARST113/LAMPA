@@ -1,5 +1,6 @@
 package top.rootu.lampa
 
+import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.os.Handler
@@ -38,8 +39,14 @@ class App : MultiDexApplication() {
         // The Cefrium SDK initialises Chromium from its own ContentProvider, which the
         // framework creates after attachBaseContext() but before onCreate(); anything
         // appended to the Chromium command line later than that is ignored.
-        CefriumCommandLine.apply()
+        // Only the main/browser process is touched: Chromium services run in their own
+        // processes and receive their real command line from the framework, which an
+        // early empty init here would destroy.
+        if (Application.getProcessName() == base.packageName) {
+            CefriumCommandLine.apply()
+        }
     }
+
     companion object {
         private val TAG: String = App::class.java.simpleName
         private lateinit var appContext: Context
