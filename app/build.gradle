@@ -65,7 +65,7 @@ android {
         applicationId "top.rootu.lampa"
         minSdkVersion 29
         //noinspection ExpiredTargetSdkVersion
-        targetSdkVersion 28
+        targetSdkVersion 29
         versionCode getVersionCode()
         versionName getVersionName()
         buildConfigField "String", "REPO_ID", "\"${getRepoId()}\""
@@ -145,6 +145,13 @@ android {
         viewBinding true
     }
     namespace 'top.rootu.lampa'
+}
+
+configurations.configureEach {
+    // Cefrium is a fat AAR and already carries the AndroidX Window resources
+    // Chromium was built against. Do not merge a second androidx.window resource table.
+    exclude group: 'androidx.window', module: 'window'
+    exclude group: 'androidx.window', module: 'window-java'
 }
 
 dependencies {
