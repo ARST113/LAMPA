@@ -2,6 +2,13 @@ plugins {
     id 'com.android.application'
     id 'com.google.devtools.ksp'
     id 'kotlin-android'
+    id 'com.cefrium'
+}
+
+def customCefrium = project.findProperty('cefriumAar')
+def customCefriumSha256 = project.findProperty('cefriumSha256')
+if (customCefrium && !(customCefriumSha256 ==~ /[0-9a-f]{64}/)) {
+    throw new GradleException('A custom Cefrium AAR requires -PcefriumSha256=<64 lowercase hex digits>')
 }
 
 def getVersionCode = { ->
@@ -53,10 +60,10 @@ def getRepoId = { ->
 
 android {
     //noinspection GradleDependency
-    compileSdk 34
+    compileSdk 35
     defaultConfig {
         applicationId "top.rootu.lampa"
-        minSdkVersion 16
+        minSdkVersion 29
         //noinspection ExpiredTargetSdkVersion
         targetSdkVersion 28
         versionCode getVersionCode()
@@ -65,6 +72,7 @@ android {
         multiDexEnabled = true // required when setting minSdkVersion to 20 or lower
         // Use SupportLibrary for vectors
         vectorDrawables.useSupportLibrary = true
+        ndk { abiFilters 'arm64-v8a' }
     }
 
     signingConfigs {
@@ -78,7 +86,7 @@ android {
                 storePassword "$keystoreProperties.storePassword"
                 keyAlias "$keystoreProperties.keyAlias"
                 keyPassword "$keystoreProperties.keyPassword"
-            } else {
+            } else if (System.getenv('KEYSTORE_FILE')) {
                 storeFile file(System.getenv('KEYSTORE_FILE'))
                 storePassword System.getenv('KEYSTORE_PASSWORD')
                 keyAlias System.getenv('RELEASE_SIGN_KEY_ALIAS')
@@ -99,14 +107,14 @@ android {
         // https://developer.android.com/studio/write/java8-support-table
         coreLibraryDesugaringEnabled true
         // Sets Java compatibility to Java 8
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
     }
     packagingOptions {
         resources.excludes += "DebugProbesKt.bin"
     }
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "11"
     }
 
     // gradle 4.6 migration: disable dimensions mechanism
@@ -140,6 +148,11 @@ android {
 }
 
 dependencies {
+    if (customCefrium) {
+        implementation files(customCefrium)
+    } else {
+        implementation 'com.cefrium:cefrium-sdk:0.9.2'
+    }
     // https://developer.android.com/studio/write/java8-support#library-desugaring
     //noinspection GradleDependency 2.0.4 for AGP 7.4
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
