@@ -186,6 +186,23 @@ dependencies {
     def coreKtxVer = '1.16.0'
     //noinspection GradleDependency
     implementation "androidx.core:core-ktx:$coreKtxVer"
+    // The Cefrium fat AAR ships Material Components and Lottie as *classes only* -- it
+    // contains no androidx classes at all, and this branch removed their Maven
+    // coordinates. Every androidx library their bytecode links against therefore has to
+    // be declared here explicitly (measured from the AAR itself):
+    //   FloatingActionButton -> dynamicanimation, coordinatorlayout
+    //   TabLayout / carousel -> recyclerview, viewpager, viewpager2, cardview
+    //   shape theming        -> graphics-shapes
+    implementation 'androidx.dynamicanimation:dynamicanimation:1.0.0'
+    implementation 'androidx.coordinatorlayout:coordinatorlayout:1.2.0'
+    implementation 'androidx.recyclerview:recyclerview:1.3.2'
+    implementation 'androidx.transition:transition:1.5.0'
+    implementation 'androidx.viewpager:viewpager:1.0.0'
+    implementation 'androidx.viewpager2:viewpager2:1.1.0'
+    implementation 'androidx.cardview:cardview:1.0.0'
+    implementation 'androidx.graphics:graphics-shapes:1.0.1'
+    implementation 'androidx.customview:customview:1.1.0'
+    implementation 'androidx.interpolator:interpolator:1.0.0'
     def lifecycleVersion = '2.6.2' // 2.6.2 - last api16 compatible
     //noinspection GradleDependency
     implementation "androidx.lifecycle:lifecycle-process:$lifecycleVersion"
