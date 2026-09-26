@@ -20,6 +20,7 @@
     <string name="change_engine_title">Choose Browser</string>
     <string name="close_menu_title">Close This Menu</string>
     <string name="change_url_title">Change Lampa URL</string>
+    <string name="engine_cefrium">Chromium 152 + AC3/EAC3 (Cefrium)</string>
     <string name="engine_crosswalk_obsolete">Crosswalk (XWalkLib) - obsolete</string>
     <string name="engine_crosswalk">Crosswalk (XWalkLib)</string>
     <string name="engine_webkit">Android System WebView</string>
