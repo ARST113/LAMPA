@@ -19,7 +19,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: lampa-official-cefrium-three-engines-jdk25
+  group: lampa-official-cefrium-no-crosswalk
   cancel-in-progress: true
 
 jobs:
