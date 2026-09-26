@@ -16,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import top.rootu.lampa.browser.CefriumCommandLine
 import top.rootu.lampa.helpers.Helpers.isConnected
 import top.rootu.lampa.helpers.Prefs.appLang
 import top.rootu.lampa.helpers.Updater
@@ -32,6 +33,13 @@ class App : MultiDexApplication() {
         AppCompatDelegate.setCompatVectorFromResourcesEnabled(true)
     }
 
+    override fun attachBaseContext(base: Context) {
+        super.attachBaseContext(base)
+        // The Cefrium SDK initialises Chromium from its own ContentProvider, which the
+        // framework creates after attachBaseContext() but before onCreate(); anything
+        // appended to the Chromium command line later than that is ignored.
+        CefriumCommandLine.apply()
+    }
     companion object {
         private val TAG: String = App::class.java.simpleName
         private lateinit var appContext: Context
