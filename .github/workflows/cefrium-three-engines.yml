@@ -59,6 +59,16 @@ jobs:
           echo "$CEF_SHA256  $CEF_AAR" | sha256sum --check -
           ls -lh "$CEF_AAR"
 
+      - name: Patch Chromium fraction-backed dimen resources
+        id: patch_cefrium
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-cefrium-fraction-dimens.py "$CEF_AAR"
+          PATCHED_SHA256="$(sha256sum "$CEF_AAR" | awk '{print $1}')"
+          echo "sha256=$PATCHED_SHA256" >> "$GITHUB_OUTPUT"
+          unzip -p "$CEF_AAR" 'res/values*/values.xml' 2>/dev/null | grep -n -C 1 '50%' || true
+
       - name: Build official Lampa fullDebug
         shell: bash
         run: |
@@ -66,7 +76,7 @@ jobs:
           chmod +x ./gradlew
           ./gradlew :app:assembleFullDebug \
             -PcefriumAar="$CEF_AAR" \
-            -PcefriumSha256="$CEF_SHA256" \
+            -PcefriumSha256="${{ steps.patch_cefrium.outputs.sha256 }}" \
             --stacktrace
 
       - name: Prepare APK
