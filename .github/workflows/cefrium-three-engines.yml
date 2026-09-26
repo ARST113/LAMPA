@@ -13,6 +13,7 @@ on:
       - gradle.properties
       - gradle/wrapper/**
       - scripts/**
+      - scripts/**
       - .github/workflows/cefrium-three-engines.yml
 
 permissions:
@@ -59,6 +60,13 @@ jobs:
           curl --fail --location --retry 4 --retry-all-errors "$CEF_URL" -o "$CEF_AAR"
           echo "$CEF_SHA256  $CEF_AAR" | sha256sum --check -
           ls -lh "$CEF_AAR"
+
+      - name: Normalize legacy Chromium percentage resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-cefrium-aar.py "$CEF_AAR"
+          sha256sum "$CEF_AAR"
 
       - name: Build official Lampa fullDebug
         shell: bash
