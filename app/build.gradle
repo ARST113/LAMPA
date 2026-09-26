@@ -208,6 +208,13 @@ dependencies {
     implementation 'androidx.graphics:graphics-shapes:1.0.1'
     implementation 'androidx.customview:customview:1.1.0'
     implementation 'androidx.interpolator:interpolator:1.0.0'
+    // Chromium's media router (org.chromium.components.media_router.BrowserMediaRouter)
+    // is built from CefriumBrowser.resumeMedia() -> MediaSession.fromWebContents() on
+    // every MainActivity.onResume. CafMediaRouteProvider.create() touches
+    // androidx.mediarouter.media.MediaRouter directly, so without this artifact the
+    // first onResume throws NoClassDefFoundError inside JNI and Chromium aborts with
+    // SIGTRAP (FATAL:base/android/jni_android.cc:203) before Lampa ever paints.
+    implementation 'androidx.mediarouter:mediarouter:1.7.0'
     def lifecycleVersion = '2.6.2' // 2.6.2 - last api16 compatible
     //noinspection GradleDependency
     implementation "androidx.lifecycle:lifecycle-process:$lifecycleVersion"
