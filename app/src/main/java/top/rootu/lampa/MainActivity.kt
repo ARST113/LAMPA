@@ -66,14 +66,9 @@ import net.gotev.speech.SpeechUtil
 import net.gotev.speech.ui.SpeechProgressView
 import org.json.JSONException
 import org.json.JSONObject
-import org.xwalk.core.MyXWalkEnvironment
-import org.xwalk.core.MyXWalkUpdater
-import org.xwalk.core.XWalkInitializer
-import org.xwalk.core.XWalkPreferences
 import top.rootu.lampa.browser.Browser
 import top.rootu.lampa.browser.Cefrium
 import top.rootu.lampa.browser.SysView
-import top.rootu.lampa.browser.XWalk
 import top.rootu.lampa.channels.ChannelManager.getChannelDisplayName
 import top.rootu.lampa.channels.WatchNext
 import top.rootu.lampa.content.LampaProvider
@@ -137,11 +132,8 @@ import androidx.core.net.toUri
 
 
 class MainActivity : BaseActivity(),
-    Browser.Listener,
-    XWalkInitializer.XWalkInitListener, MyXWalkUpdater.XWalkUpdateListener {
+    Browser.Listener {
     // Local properties
-    private var mXWalkUpdater: MyXWalkUpdater? = null
-    private var mXWalkInitializer: XWalkInitializer? = null
     private var browser: Browser? = null
     private var browserInitComplete = false
     private var isMenuVisible = false
@@ -314,7 +306,6 @@ class MainActivity : BaseActivity(),
         // Try to initialize again when the user completed updating and
         // returned to current activity. The browser.onResume() will do nothing if
         // the initialization is proceeding or has already been completed.
-        mXWalkInitializer?.initAsync()
         logDebug("onResume() browserInitComplete $browserInitComplete")
         if (browserInitComplete)
             browser?.resumeTimers()
@@ -511,14 +502,6 @@ class MainActivity : BaseActivity(),
                 useCefrium()
             }
 
-            "XWalk" -> {
-                // Keep the original Crosswalk initialization path untouched.
-                mXWalkInitializer = XWalkInitializer(this, this)
-                mXWalkInitializer?.initAsync()
-                XWalkPreferences.setValue(XWalkPreferences.REMOTE_DEBUGGING, true)
-                XWalkPreferences.setValue(XWalkPreferences.ENABLE_JAVASCRIPT, true)
-            }
-
             "SysView" -> {
                 useSystemWebView()
             }
@@ -538,18 +521,6 @@ class MainActivity : BaseActivity(),
         loaderView = findViewById(R.id.loaderView)
         browser = Cefrium(this, R.id.cefriumContainer)
         browser?.initialize()
-    }
-
-    private fun useCrossWalk() {
-        setContentView(R.layout.activity_xwalk)
-        loaderView = findViewById(R.id.loaderView)
-        try {
-            browser = XWalk(this, R.id.xWalkView)
-            browser?.initialize()
-        } catch (e: Exception) {
-            Log.e("XWalk", "Init failed. Fallback to WebView.", e)
-            useSystemWebView()
-        }
     }
 
     private fun useSystemWebView() {
@@ -809,44 +780,6 @@ class MainActivity : BaseActivity(),
 
     private fun setupUI() {
         hideSystemUI() // Must be invoked after setContentView!
-    }
-
-    override fun onXWalkInitStarted() {
-        logDebug("onXWalkInitStarted()")
-    }
-
-    override fun onXWalkInitCancelled() {
-        logDebug("onXWalkInitCancelled()")
-        // Perform error handling here
-        finish()
-    }
-
-    override fun onXWalkInitFailed() {
-        logDebug("onXWalkInitFailed()")
-        if (mXWalkUpdater == null) {
-            mXWalkUpdater = MyXWalkUpdater(this, this)
-        }
-        setupXWalkApkUrl()
-        mXWalkUpdater?.updateXWalkRuntime()
-    }
-
-    override fun onXWalkInitCompleted() {
-        logDebug("onXWalkInitCompleted() isXWalkReady: ${mXWalkInitializer?.isXWalkReady}")
-        if (mXWalkInitializer?.isXWalkReady == true) {
-            useCrossWalk()
-        }
-    }
-
-    override fun onXWalkUpdateCancelled() {
-        logDebug("onXWalkUpdateCancelled()")
-        // Perform error handling here
-        finish()
-    }
-
-    private fun setupXWalkApkUrl() {
-        val abi = MyXWalkEnvironment.getRuntimeAbi()
-        val apkUrl = String.format(getString(R.string.xwalk_apk_link), abi)
-        mXWalkUpdater!!.setXWalkApkUrl(apkUrl)
     }
 
     private fun migrateSettings() {
@@ -1566,7 +1499,6 @@ class MainActivity : BaseActivity(),
     }
 
     private fun showBrowserInputDialog() {
-        val xWalkVersion = "53.589.4"
         val titles = mutableListOf<String>()
         val actions = mutableListOf<String>()
         val icons = mutableListOf<Int>()
@@ -1583,7 +1515,6 @@ class MainActivity : BaseActivity(),
         }
 
         addEngine(getString(R.string.engine_cefrium), "Cefrium")
-        addEngine("${getString(R.string.engine_crosswalk)} $xWalkVersion", "XWalk")
 
         if (Helpers.isWebViewAvailable(this)) {
             val webViewVersion = Helpers.getWebViewVersion(this)
