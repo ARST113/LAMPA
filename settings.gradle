@@ -12,7 +12,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        jcenter()
+        maven { url 'https://jcenter.bintray.com/' }
         maven { url 'https://codeberg.org/api/packages/cefrium/maven' } // Warning: this repository is going to shut down soon
         maven {
             url 'https://download.01.org/crosswalk/releases/crosswalk/android/maven2'
