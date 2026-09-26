@@ -1,0 +1,8 @@
+plugins { id 'groovy'; id 'java-gradle-plugin' }
+group = 'com.cefrium'
+version = '0.9.2'
+java { sourceCompatibility = JavaVersion.VERSION_11; targetCompatibility = JavaVersion.VERSION_11 }
+gradlePlugin {
+    plugins { cefrium { id = 'com.cefrium'; implementationClass = 'com.cefrium.CefriumPlugin' } }
+}
+dependencies { implementation gradleApi(); implementation localGroovy() }
