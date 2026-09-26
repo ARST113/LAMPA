@@ -1,7 +1,6 @@
 plugins {
     id 'com.android.application'
     id 'com.google.devtools.ksp'
-    id 'kotlin-android'
     id 'com.cefrium'
 }
 
@@ -107,16 +106,12 @@ android {
         // https://developer.android.com/studio/write/java8-support-table
         coreLibraryDesugaringEnabled true
         // Sets Java compatibility to Java 8
-        sourceCompatibility JavaVersion.VERSION_11
-        targetCompatibility JavaVersion.VERSION_11
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
     packagingOptions {
         resources.excludes += "DebugProbesKt.bin"
     }
-    kotlinOptions {
-        jvmTarget = "11"
-    }
-
     // gradle 4.6 migration: disable dimensions mechanism
     // more: https://proandroiddev.com/advanced-android-flavors-part-4-a-new-version-fc2ad80c01bb
     flavorDimensions "default"
@@ -142,6 +137,7 @@ android {
         resources.excludes += "DebugProbesKt.bin"
     }
     buildFeatures {
+        buildConfig true
         viewBinding true
     }
     namespace 'top.rootu.lampa'
@@ -211,7 +207,7 @@ dependencies {
     implementation "com.squareup.okhttp3:okhttp-dnsoverhttps:$okhttpVersion"
     implementation 'org.brotli:dec:0.1.2'
     //noinspection GradleDependency
-    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kp_version" // or jdk7
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:2.4.10"
     def coroutinesVersion = '1.7.3' // 1.7.3 - last compatible with kp 1.8.22
     //noinspection GradleDependency
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:$coroutinesVersion"
