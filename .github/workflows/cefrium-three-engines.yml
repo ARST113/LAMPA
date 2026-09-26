@@ -66,6 +66,12 @@ jobs:
           set -euo pipefail
           python3 scripts/patch-cefrium-aar.py "$CEF_AAR"
           sha256sum "$CEF_AAR"
+      - name: Strip Material/Lottie classes bundled in the runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/strip-cefrium-bundled-libs.py "$CEF_AAR"
+          sha256sum "$CEF_AAR"
 
       - name: Build official Lampa liteDebug
         shell: bash
