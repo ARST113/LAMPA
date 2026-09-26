@@ -1,4 +1,4 @@
-name: Build official Lampa + Cefrium (3 engines)
+name: Build official Lampa + Cefrium
 
 on:
   workflow_dispatch:
@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   build:
-    name: Lite debug APK — Cefrium + XWalk shared + System WebView
+    name: Lite debug APK — Cefrium + System WebView
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -84,16 +84,16 @@ jobs:
           mkdir -p artifacts
           APK="$(find app/build/outputs/apk/lite/debug -maxdepth 1 -name '*.apk' -print -quit)"
           test -n "$APK"
-          cp "$APK" artifacts/Lampa-v1.13.1-Cefrium-Chromium152-3engines-lite-arm64-debug.apk
+          cp "$APK" artifacts/Lampa-v1.13.1-Cefrium-Chromium152-arm64-debug.apk
           sha256sum artifacts/*.apk | tee artifacts/SHA256SUMS
           ls -lh artifacts/
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Lampa-Cefrium-3engines-arm64-${{ github.run_number }}
+          name: Lampa-Cefrium-arm64-${{ github.run_number }}
           path: |
-            artifacts/Lampa-v1.13.1-Cefrium-Chromium152-3engines-lite-arm64-debug.apk
+            artifacts/Lampa-v1.13.1-Cefrium-Chromium152-arm64-debug.apk
             artifacts/SHA256SUMS
           if-no-files-found: error
           retention-days: 30
