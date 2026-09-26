@@ -12,6 +12,7 @@ on:
       - settings.gradle
       - gradle.properties
       - gradle/wrapper/**
+      - scripts/**
       - .github/workflows/cefrium-three-engines.yml
 
 permissions:
