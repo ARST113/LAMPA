@@ -178,7 +178,12 @@ dependencies {
     def constraintVersion = '2.1.4' // 2.1.4 - last api16 compatible
     //noinspection GradleDependency
     implementation "androidx.constraintlayout:constraintlayout:${constraintVersion}"
-    def coreKtxVer = '1.12.0' // 1.12.0 - last api16 compatible
+    // Cefrium's Chromium 152 Java code calls androidx.core.os.BuildCompat.isAtLeastB(),
+    // which exists only since androidx.core 1.16.0. With the old 1.12.0 pin the APK linked
+    // against a BuildCompat without that method, Chromium threw NoSuchMethodError from JNI
+    // and killed the process (SIGTRAP) in a restart loop. This branch is minSdk 29, so the
+    // "last api16 compatible" pin no longer applies.
+    def coreKtxVer = '1.16.0'
     //noinspection GradleDependency
     implementation "androidx.core:core-ktx:$coreKtxVer"
     def lifecycleVersion = '2.6.2' // 2.6.2 - last api16 compatible
