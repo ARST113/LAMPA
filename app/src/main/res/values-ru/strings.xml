@@ -18,6 +18,7 @@
     <string name="change_engine_title">Выбор браузера</string>
     <string name="close_menu_title">Закрыть это меню</string>
     <string name="change_url_title">Изменить адрес Lampa</string>
+    <string name="engine_cefrium">Chromium 152 + AC3/EAC3 (Cefrium)</string>
     <string name="engine_crosswalk_obsolete">Crosswalk (XWalkLib) - устаревший</string>
     <string name="engine_crosswalk">Crosswalk (XWalkLib)</string>
     <string name="engine_webkit">Android System WebView</string>
