@@ -13,7 +13,6 @@ on:
       - gradle.properties
       - gradle/wrapper/**
       - scripts/**
-      - scripts/**
       - .github/workflows/cefrium-three-engines.yml
 
 permissions:
@@ -39,18 +38,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up JDK 21
+      - name: Set up JDK 25
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
           cache: gradle
 
-      - name: Install Android SDK 35
+      - name: Install Android SDK 37
         shell: bash
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platform-tools" "platforms;android-37" "build-tools;36.0.0"
 
       - name: Download saved Chromium 152 AC3/EAC3 runtime
         shell: bash
