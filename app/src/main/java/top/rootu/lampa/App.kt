@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
+import android.os.Process
 import android.util.Log
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.lifecycle.Lifecycle
@@ -92,6 +93,14 @@ class App : MultiDexApplication() {
 
     override fun onCreate() {
         super.onCreate()
+        // Chromium/Cefrium runs web renderers in :sandboxed_processN services declared
+        // with android:isolatedProcess="true". Android instantiates this Application in
+        // those processes too, but an isolated process gets no credential protected
+        // storage: getSharedPreferences() throws IllegalStateException ("UserManager is
+        // not available"), App.onCreate dies, the renderer is killed and respawned in a
+        // loop and the browser view stays blank white. None of the setup below (prefs,
+        // lifecycle observer, updater, crash handler) is meaningful in a renderer.
+        if (Process.isIsolated()) return
         // setup applicationContext
         appContext = applicationContext.setLanguage()
         // ensure resources are properly initialized
