@@ -48,6 +48,30 @@ class Cefrium(
         commandLine.appendSwitchWithValue("enable-blink-features", "AudioVideoTracks")
         commandLine.appendSwitch("allow-running-insecure-content")
 
+        // Chromium 152 upgrades every http:// navigation to https:// by itself
+        // (HttpsUpgrades / HttpsUpgradesInterceptor). Cefrium surfaces that synthetic
+        // redirect as "OnLoadEnd: status 307" and the upgraded request then fails
+        // (net_error -200 / -113) because LAMPA mirrors are plain-HTTP servers, or
+        // have no TLS endpoint for the requested host. Keep the user's scheme.
+        val disabledFeatures = listOf(
+            "HttpsUpgrades",
+            "HttpsFirstMode",
+            "HttpsFirstModeV2",
+            "HttpsFirstModeIncognito",
+            "HttpsFirstBalancedMode",
+            "HttpsFirstBalancedModeAutoEnable",
+            "HttpsOnlyMode"
+        ) + commandLine.getSwitchValue("disable-features")
+            .orEmpty()
+            .split(',')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+
+        commandLine.appendSwitchWithValue(
+            "disable-features",
+            disabledFeatures.distinct().joinToString(",")
+        )
+
         val host = mainActivity.findViewById<FrameLayout>(viewResId)
         container = host
 
