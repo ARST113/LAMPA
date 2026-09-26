@@ -66,13 +66,8 @@ import net.gotev.speech.SpeechUtil
 import net.gotev.speech.ui.SpeechProgressView
 import org.json.JSONException
 import org.json.JSONObject
-import org.xwalk.core.MyXWalkEnvironment
-import org.xwalk.core.MyXWalkUpdater
-import org.xwalk.core.XWalkInitializer
-import org.xwalk.core.XWalkPreferences
 import top.rootu.lampa.browser.Browser
-import top.rootu.lampa.browser.SysView
-import top.rootu.lampa.browser.XWalk
+import top.rootu.lampa.browser.Cefrium
 import top.rootu.lampa.channels.ChannelManager.getChannelDisplayName
 import top.rootu.lampa.channels.WatchNext
 import top.rootu.lampa.content.LampaProvider
@@ -89,12 +84,10 @@ import top.rootu.lampa.helpers.Helpers.isTvContentProviderAvailable
 import top.rootu.lampa.helpers.Helpers.isValidJson
 import top.rootu.lampa.helpers.PermHelpers
 import top.rootu.lampa.helpers.PermHelpers.hasMicPermissions
-import top.rootu.lampa.helpers.PermHelpers.isInstallPermissionDeclared
 import top.rootu.lampa.helpers.PermHelpers.verifyMicPermissions
 import top.rootu.lampa.helpers.Prefs
 import top.rootu.lampa.helpers.Prefs.FAV
 import top.rootu.lampa.helpers.Prefs.addUrlHistory
-import top.rootu.lampa.helpers.Prefs.appBrowser
 import top.rootu.lampa.helpers.Prefs.appLang
 import top.rootu.lampa.helpers.Prefs.appPlayer
 import top.rootu.lampa.helpers.Prefs.playerKeepConnection
@@ -136,11 +129,8 @@ import androidx.core.net.toUri
 
 
 class MainActivity : BaseActivity(),
-    Browser.Listener,
-    XWalkInitializer.XWalkInitListener, MyXWalkUpdater.XWalkUpdateListener {
+    Browser.Listener {
     // Local properties
-    private var mXWalkUpdater: MyXWalkUpdater? = null
-    private var mXWalkInitializer: XWalkInitializer? = null
     private var browser: Browser? = null
     private var browserInitComplete = false
     private var isMenuVisible = false
@@ -248,8 +238,7 @@ class MainActivity : BaseActivity(),
         // Properties
         var LAMPA_URL: String = ""
         var SELECTED_PLAYER: String? = ""
-        var SELECTED_BROWSER: String? =
-            if (VERSION.SDK_INT < Build.VERSION_CODES.KITKAT) "XWalk" else ""
+        var SELECTED_BROWSER: String? = "Cefrium"
         var delayedVoidJsFunc = mutableListOf<List<String>>()
         var playerTimeCode: String = "continue"
         var playerAutoNext: Boolean = true
@@ -311,10 +300,6 @@ class MainActivity : BaseActivity(),
         endPlayerSession() // returned to foreground; player (if any) is closed
         hideSystemUI()
         if (!isTvBox) setupFab()
-        // Try to initialize again when the user completed updating and
-        // returned to current activity. The browser.onResume() will do nothing if
-        // the initialization is proceeding or has already been completed.
-        mXWalkInitializer?.initAsync()
         logDebug("onResume() browserInitComplete $browserInitComplete")
         if (browserInitComplete)
             browser?.resumeTimers()
@@ -487,72 +472,16 @@ class MainActivity : BaseActivity(),
     }
 
     private fun setupBrowser() {
-        SELECTED_BROWSER = appBrowser
-        if (!Helpers.isWebViewAvailable(this)
-            || (SELECTED_BROWSER.isNullOrEmpty() && VERSION.SDK_INT < Build.VERSION_CODES.KITKAT)
-        ) {
-            SELECTED_BROWSER = "XWalk"
-        }
-        val wvvMajorVersion: Double = try {
-            Helpers.getWebViewVersion(this).substringBefore(".").toDouble()
-        } catch (_: NumberFormatException) {
-            0.0
-        }
-        // Use WebView on RuStore builds and modern Androids by default
-        if (Helpers.isWebViewAvailable(this)
-            && SELECTED_BROWSER.isNullOrEmpty()
-            && (BuildConfig.FLAVOR == "ruStore" || wvvMajorVersion > 53.589)
-        ) {
-            SELECTED_BROWSER = "SysView"
-        }
-        when (SELECTED_BROWSER) {
-            "XWalk" -> {
-                // Must call initAsync() before anything that involves the embedding
-                // API, including invoking setContentView() with the layout which
-                // holds the XWalkView object.
-                mXWalkInitializer = XWalkInitializer(this, this)
-                mXWalkInitializer?.initAsync()
-                // Until onXWalkInitCompleted() is invoked, you should do nothing with the
-                // embedding API except the following:
-                // 1. Instantiate the XWalkView object
-                // 2. Call XWalkPreferences.setValue()
-                // 3. Call mXWalkView.setXXClient(), e.g., setUIClient
-                // 4. Call mXWalkView.setXXListener(), e.g., setDownloadListener
-                // 5. Call mXWalkView.addJavascriptInterface()
-                XWalkPreferences.setValue(XWalkPreferences.REMOTE_DEBUGGING, true)
-                XWalkPreferences.setValue(XWalkPreferences.ENABLE_JAVASCRIPT, true)
-            }
+        // This build intentionally uses one engine only: the custom
+        // Cefrium / Chromium 152 runtime with AC3/EAC3 support.
+        SELECTED_BROWSER = "Cefrium"
+        setContentView(R.layout.activity_cefrium)
+        loaderView = findViewById(R.id.loaderView)
+        browser = Cefrium(this, R.id.cefriumContainer)
+        browser?.initialize()
 
-            "SysView" -> {
-                useSystemWebView()
-            }
-
-            else -> {
-                setContentView(R.layout.activity_empty)
-                showBrowserInputDialog()
-            }
-        }
         // https://developer.android.com/develop/background-work/background-tasks/scheduling/wakelock
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-    }
-
-    private fun useCrossWalk() {
-        setContentView(R.layout.activity_xwalk)
-        loaderView = findViewById(R.id.loaderView)
-        try {
-            browser = XWalk(this, R.id.xWalkView)
-            browser?.initialize()
-        } catch (e: Exception) {
-            Log.e("XWalk", "Init failed. Fallback to WebView.", e)
-            useSystemWebView()
-        }
-    }
-
-    private fun useSystemWebView() {
-        setContentView(R.layout.activity_webview)
-        loaderView = findViewById(R.id.loaderView)
-        browser = SysView(this, R.id.webView)
-        browser?.initialize()
     }
 
     private fun handleSpeechResult(result: androidx.activity.result.ActivityResult) {
@@ -805,44 +734,6 @@ class MainActivity : BaseActivity(),
 
     private fun setupUI() {
         hideSystemUI() // Must be invoked after setContentView!
-    }
-
-    override fun onXWalkInitStarted() {
-        logDebug("onXWalkInitStarted()")
-    }
-
-    override fun onXWalkInitCancelled() {
-        logDebug("onXWalkInitCancelled()")
-        // Perform error handling here
-        finish()
-    }
-
-    override fun onXWalkInitFailed() {
-        logDebug("onXWalkInitFailed()")
-        if (mXWalkUpdater == null) {
-            mXWalkUpdater = MyXWalkUpdater(this, this)
-        }
-        setupXWalkApkUrl()
-        mXWalkUpdater?.updateXWalkRuntime()
-    }
-
-    override fun onXWalkInitCompleted() {
-        logDebug("onXWalkInitCompleted() isXWalkReady: ${mXWalkInitializer?.isXWalkReady}")
-        if (mXWalkInitializer?.isXWalkReady == true) {
-            useCrossWalk()
-        }
-    }
-
-    override fun onXWalkUpdateCancelled() {
-        logDebug("onXWalkUpdateCancelled()")
-        // Perform error handling here
-        finish()
-    }
-
-    private fun setupXWalkApkUrl() {
-        val abi = MyXWalkEnvironment.getRuntimeAbi()
-        val apkUrl = String.format(getString(R.string.xwalk_apk_link), abi)
-        mXWalkUpdater!!.setXWalkApkUrl(apkUrl)
     }
 
     private fun migrateSettings() {
@@ -1350,11 +1241,6 @@ class MainActivity : BaseActivity(),
                 icon = R.drawable.round_link_24
             ),
             MenuItem(
-                title = getString(R.string.change_engine),
-                action = "showBrowserInputDialog",
-                icon = R.drawable.round_explorer_24
-            ),
-            MenuItem(
                 title = getString(R.string.backup_restore_title),
                 action = "showBackupDialog",
                 icon = R.drawable.round_settings_backup_restore_24
@@ -1382,10 +1268,6 @@ class MainActivity : BaseActivity(),
             )
         )
 
-        // Hide CrossWalk switcher on RuStore builds
-        if (!isInstallPermissionDeclared(this))
-            menuItems.removeAt(2)
-
         // Set up the adapter
         val adapter = ImgArrayAdapter(
             this,
@@ -1408,11 +1290,6 @@ class MainActivity : BaseActivity(),
                     "showUrlInputDialog" -> {
                         App.toast(R.string.change_note)
                         showUrlInputDialog()
-                    }
-
-                    "showBrowserInputDialog" -> {
-                        App.toast(R.string.change_note)
-                        showBrowserInputDialog()
                     }
 
                     "showBackupDialog" -> showBackupDialog()
@@ -1561,76 +1438,6 @@ class MainActivity : BaseActivity(),
         }
     }
 
-    private fun showBrowserInputDialog() {
-
-        val xWalkVersion = "53.589.4"
-        var selectedIndex = 0
-
-        // Determine available browser options
-        val (menuItemsTitles, menuItemsActions, menuIcons) =
-            if (Helpers.isWebViewAvailable(this)) {
-                val webViewVersion = Helpers.getWebViewVersion(this)
-                val webViewMajorVersion = try {
-                    webViewVersion.substringBefore(".").toDouble()
-                } catch (_: NumberFormatException) {
-                    0.0
-                }
-
-                val isCrosswalkActive = SELECTED_BROWSER == "XWalk"
-
-                val crosswalkTitle = if (isCrosswalkActive) {
-                    "${getString(R.string.engine_crosswalk)} - ${getString(R.string.engine_active)} $xWalkVersion"
-                } else {
-                    if (webViewMajorVersion > 53.589) "${getString(R.string.engine_crosswalk_obsolete)} $xWalkVersion"
-                    else "${getString(R.string.engine_crosswalk)} $xWalkVersion"
-                }
-
-                val webkitTitle = if (isCrosswalkActive) {
-                    "${getString(R.string.engine_webkit)} $webViewVersion"
-                } else {
-                    "${getString(R.string.engine_webkit)} - ${getString(R.string.engine_active)} $webViewVersion"
-                }
-
-                val titles = listOf(crosswalkTitle, webkitTitle)
-                val actions = listOf("XWalk", "SysView")
-                val icons = listOf(R.drawable.round_explorer_24, R.drawable.round_explorer_24)
-                selectedIndex = if (isCrosswalkActive) 0 else 1
-
-                Triple(titles, actions, icons)
-            } else { // No WebView
-                val crosswalkTitle = if (SELECTED_BROWSER == "XWalk") {
-                    "${getString(R.string.engine_crosswalk)} - ${getString(R.string.engine_active)} $xWalkVersion"
-                } else {
-                    "${getString(R.string.engine_crosswalk)} $xWalkVersion"
-                }
-
-                val titles = listOf(crosswalkTitle)
-                val actions = listOf("XWalk")
-                val icons = listOf(R.drawable.round_explorer_24)
-
-                Triple(titles, actions, icons)
-            }
-
-        // Set up the adapter
-        val adapter = ImgArrayAdapter(this, menuItemsTitles, menuIcons)
-
-        // Configure the dialog
-        val dialog = AlertDialog.Builder(this).apply {
-            setTitle(getString(R.string.change_engine_title))
-            setAdapter(adapter) { dialog, which ->
-                dialog.dismiss()
-                if (menuItemsActions[which] != SELECTED_BROWSER) {
-                    appBrowser = menuItemsActions[which]
-                    this@MainActivity.recreate()
-                }
-            }
-        }.create()
-        // Show the dialog
-        showFullScreenDialog(dialog)
-        // Set active row
-        adapter.setSelectedItem(selectedIndex)
-    }
-
     fun showUrlInputDialog(msg: String = "") {
         val mainActivity = this
         urlAdapter = UrlAdapter(mainActivity)
@@ -1764,23 +1571,38 @@ class MainActivity : BaseActivity(),
 
     // Helper function to handle the save button click
     private fun handleSaveButtonClick(input: AutoCompleteTV?) {
-        LAMPA_URL = input?.text.toString()
-        if (isValidUrl(LAMPA_URL)) {
-            Log.d(TAG, "URL '$LAMPA_URL' is valid")
-            if (appUrl != LAMPA_URL) {
-                appUrl = LAMPA_URL
-                addUrlHistory(LAMPA_URL)
-                browser?.loadUrl(LAMPA_URL)
-                App.toast(R.string.change_url_press_back)
-            } else {
-                browser?.loadUrl(LAMPA_URL) // Reload current URL
-            }
-        } else {
-            Log.d(TAG, "URL '$LAMPA_URL' is invalid")
+        val targetUrl = input?.text.toString()
+        LAMPA_URL = targetUrl
+
+        if (!isValidUrl(targetUrl)) {
+            Log.d(TAG, "URL '$targetUrl' is invalid")
             App.toast(R.string.invalid_url)
             showUrlInputDialog()
+            return
         }
-        // hideSystemUI()
+
+        Log.d(TAG, "URL '$targetUrl' is valid")
+        if (appUrl == targetUrl) {
+            browser?.loadUrl(targetUrl) // Reload current URL
+            return
+        }
+
+        // Preserve the current Lampa localStorage before changing origin.
+        // This keeps plugin/TorrServer settings when the user switches Lampa servers.
+        dumpStorage { result ->
+            if (result.contains(JS_SUCCESS, true)) {
+                this@MainActivity.migrate = true
+                Log.d(TAG, "Server switch: localStorage captured for automatic migration")
+            } else {
+                Log.w(TAG, "Server switch: localStorage capture failed, switching without migration: $result")
+            }
+
+            appUrl = targetUrl
+            addUrlHistory(targetUrl)
+            LAMPA_URL = targetUrl
+            browser?.loadUrl(targetUrl)
+            App.toast(R.string.change_url_press_back)
+        }
     }
 
     // Helper function to handle the cancel button click
