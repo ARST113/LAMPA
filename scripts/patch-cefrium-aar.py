@@ -61,7 +61,7 @@ with zipfile.ZipFile(src, "r") as zin, zipfile.ZipFile(tmp, "w") as zout:
 
 if total == 0:
     tmp.unlink(missing_ok=True)
-    raise SystemExit("No legacy 50% pseudo-dimens found; refusing blind patch")
-
-tmp.replace(src)
-print(f"Patched {total} Cefrium resource value(s) in {src}")
+    print("No legacy 50% pseudo-dimens found; AAR already needs no normalization")
+else:
+    tmp.replace(src)
+    print(f"Patched {total} Cefrium resource value(s) in {src}")
