@@ -140,6 +140,14 @@ android {
         buildConfig true
         viewBinding true
     }
+    sourceSets {
+        main {
+            java {
+                exclude 'org/xwalk/**'
+                exclude 'top/rootu/lampa/browser/XWalk.kt'
+            }
+        }
+    }
     namespace 'top.rootu.lampa'
 }
 
@@ -222,7 +230,4 @@ dependencies {
     //noinspection GradleDependency 1.8.1 fails on build with old gradle
     implementation 'org.mozilla:rhino:1.7.15' // JavaScript to run PAC file to get correct proxies
     // crosswalk latest
-    liteApi fileTree(dir: 'libs', include: ['xwalk_shared_library-23.53.589.4.aar'])
-    ruStoreApi fileTree(dir: 'libs', include: ['xwalk_shared_library-23.53.589.4.aar'])
-    fullApi fileTree(dir: 'libs', include: ['xwalk_core_library-23.53.589.4.aar'])
 }
