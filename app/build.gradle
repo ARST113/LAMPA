@@ -201,7 +201,7 @@ dependencies {
     }
     ksp "com.github.bumptech.glide:ksp:${glideVersion}"
     implementation "com.github.bumptech.glide:annotations:${glideVersion}"
-    def muiVersion = '1.11.0' // 1.11.0 - last api16 compatible
+    def muiVersion = '1.13.0' // Cefrium resources use fraction-capable Material attrs; minSdk is 29 in this build
     //noinspection GradleDependency
     implementation "com.google.android.material:material:${muiVersion}"
     def okhttpVersion = '3.12.13' // okhttp 3.12.13 - latest version for API < 21
