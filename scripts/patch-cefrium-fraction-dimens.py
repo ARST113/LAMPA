@@ -54,6 +54,24 @@ with tempfile.TemporaryDirectory() as td:
     if len(patched) != 4:
         for path, name, kind in patched:
             print(f"candidate: {path}: {kind} {name}")
+        print("--- AAR entries containing literal 50% ---")
+        with zipfile.ZipFile(aar, "r") as probe:
+            for zi in probe.infolist():
+                raw = probe.read(zi.filename)
+                if b"50%" in raw:
+                    print(f"literal-50: {zi.filename}")
+                    try:
+                        txt = raw.decode("utf-8")
+                        for line_no, line in enumerate(txt.splitlines(), 1):
+                            if "50%" in line:
+                                print(f"  {line_no}: {line.strip()}")
+                    except UnicodeDecodeError:
+                        print("  binary entry")
+        print("--- resource entries ---")
+        with zipfile.ZipFile(aar, "r") as probe:
+            for zi in probe.infolist():
+                if zi.filename.startswith("res/"):
+                    print(zi.filename)
         raise SystemExit(f"Expected exactly 4 Chromium 50% dimen resources, patched {len(patched)}")
 
     out.replace(aar)
