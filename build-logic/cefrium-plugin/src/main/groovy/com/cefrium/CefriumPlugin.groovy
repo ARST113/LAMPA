@@ -72,6 +72,14 @@ class CefriumPlugin implements Plugin<Project> {
         'org.chromium.content',
         'org.chromium.media',
         'org.chromium.ui',
+        // Material Components and Lottie are shipped as *classes* inside the fat Cefrium
+        // AAR (their Maven coordinates are removed on this branch), so nothing generates
+        // their R classes. Without them FloatingActionButton.<clinit>
+        // (com.google.android.material.R$style) and LottieAnimationView.<clinit>
+        // (com.airbnb.lottie.R$attr) throw NoClassDefFoundError while the first layout
+        // inflates -- MainActivity and CrashActivity both die before the first frame.
+        'com.google.android.material',
+        'com.airbnb.lottie',
     ]
 
     void apply(Project project) {
