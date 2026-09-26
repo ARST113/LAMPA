@@ -1,9 +1,19 @@
+pluginManagement {
+    includeBuild('build-logic/cefrium-plugin')
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
         mavenCentral()
-        jcenter() // Warning: this repository is going to shut down soon
+        jcenter()
+        maven { url 'https://codeberg.org/api/packages/cefrium/maven' } // Warning: this repository is going to shut down soon
         maven {
             url 'https://download.01.org/crosswalk/releases/crosswalk/android/maven2'
         }
