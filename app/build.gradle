@@ -45,7 +45,10 @@ def getVersionName = { ->
         return stdout.toString().trim().replaceFirst("^v", "")
     }
     catch (ignored) {
-        return '0.0.0'
+        // A checkout without tags used to report "0.0.0", which made the built-in updater
+        // offer the official 1.13.1 release on every start - installing it over this build
+        // can never work (different signing key). This fork tracks that release.
+        return '1.13.1'
     }
 }
 
