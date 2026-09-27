@@ -4,8 +4,9 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - cefrium-core116
       - official-cefrium-three-engines
+      - cefrium-core116
+      - cefrium-core116
     paths:
       - app/**
       - build-logic/**
@@ -38,6 +39,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          fetch-tags: true
 
       - name: Set up JDK 25
         uses: actions/setup-java@v4
@@ -66,6 +68,12 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/patch-cefrium-aar.py "$CEF_AAR"
+          sha256sum "$CEF_AAR"
+      - name: Strip Material/Lottie classes bundled in the runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/strip-cefrium-bundled-libs.py "$CEF_AAR"
           sha256sum "$CEF_AAR"
 
       - name: Build official Lampa liteDebug
