@@ -15,6 +15,11 @@ Matroska SubRip tracks and displays their text in Lampa's subtitle overlay.
   item within the retained subtitle array is necessary to attach a working
   selector, including menus created internally by Lampa.
 - Track changes at time zero or while paused were suppressed by a clock gate.
+- The reader only started after a menu selection, but Chromium supplied no
+  SubRip tracks with which to create that menu. Metadata discovery now runs
+  when a video opens, and exposes the supported tracks through Lampa's own
+  subtitle selector. Discovery reads the playing video URL, not TorrServer's
+  separate preload response URL kept in the player metadata.
 
 The reader now validates framing, reads container timing, selects the requested
 language/label and skips media payload with HTTP Range. A subtitle-track Cues
@@ -22,6 +27,13 @@ index allows direct seeking. If the index contains only video keyframes, earlier
 subtitle headers must still be scanned so a long active cue is not discarded.
 Initial latency therefore depends on the file's index and TorrServer response;
 instant selection cannot be guaranteed for every torrent.
+
+The affected TorrServer also intermittently returned zero-filled HTTP ranges
+with valid 206 headers. Illegal zero EBML starts are retried at the exact same
+offset up to three times. No bytes are skipped. This handles transient gaps,
+but persistent empty/corrupted responses still stop the reader with an error.
+Separate range scanning is not yet sufficient for reliable immediate subtitles
+on this stream; buffering subtitles with the media is the remaining work.
 
 The page bridge cancels old readers and rejects stale session replies on seek,
 track change and stop. Native WebVTT and external URL subtitle loaders retain
@@ -35,16 +47,25 @@ use a sequential fallback, which can be slower. No server transcoding is needed.
 
 A narrow style hides Chromium's duplicate overlay enclosure on Lampa's custom
 video element; it does not disable Remote Playback or Lampa's broadcast menu.
-The reported white Cast square matched that native control's geometry, but did
-not reproduce with the local test video, so this visual repair still needs a
-check on the affected remote stream.
+The reported white Cast square matched that native control's geometry. It was
+absent on the affected remote stream after installing the repair; Lampa's HTML
+playback controls and subtitle selection menu remained usable.
 
 ## Verification
 
-- Eight JVM regression tests: EBML/timing, unknown-size clusters, track matching,
-  active long cues and indexed Range seeking, including video-only Cues.
-- Nine JavaScript tests: real plugin descriptor shape, internal menus, native
-  and external subtitles, paused/zero-time changes and stale replies.
+- Fourteen JVM regression tests: EBML/timing, unknown-size clusters, track matching,
+  active long cues and indexed Range seeking, including video-only Cues and
+  metadata-only discovery, transient/persistent zero ranges, cancellation,
+  malformed data and truncated responses.
+- Eighteen JavaScript tests: real plugin descriptor shape, internal menus, native
+  and external subtitles, paused/zero-time changes, stale replies, automatic
+  metadata discovery, the TorrServer preload/play URL distinction, same-source
+  reload, replacement menus and preservation of HLS provider callbacks.
+- On the user's actual TorrServer movie, automatic discovery exposed all 19
+  SubRip tracks in the subtitle menu. Continuing to read cues revealed the
+  transient and persistent bad-range responses described above. On-device
+  retries did not establish continuous subtitle rendering; the real-stream
+  repair remains incomplete.
 - Pixel 6, repaired APK, real H.264 + AC3 MKV with two SubRip tracks: Russian
   text rendered, paused switch to English, seek to the second cue, disable and
   re-enable all passed, including after a WebView/Cefrium round trip. Native

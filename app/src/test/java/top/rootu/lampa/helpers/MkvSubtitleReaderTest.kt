@@ -45,7 +45,9 @@ class MkvSubtitleReaderTest {
         val segment = if (unknownSegment) uint(0x18538067) + byteArrayOf(0xFF.toByte()) + body else el(0x18538067, body)
         return el(0x1A45DFA3, string(0x4282, "matroska")) + segment
     }
-    private fun read(bytes: ByteArray, ordinal: Int = 0, language: String = "", label: String = "", at: Long = 0, delivered: (Int) -> Unit = {}): List<JSONObject> {
+    private fun read(bytes: ByteArray, ordinal: Int = 0, language: String = "", label: String = "", at: Long = 0,
+                     delivered: (Int) -> Unit = {}, responseBody: (Int, ByteArray) -> ByteArray = { _, body -> body },
+                     ready: (MkvSubtitleReader) -> Unit = {}, log: (String) -> Unit = {}): List<JSONObject> {
         val output = ArrayList<JSONObject>()
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.createContext("/fixture.mkv") { exchange ->
@@ -55,11 +57,11 @@ class MkvSubtitleReaderTest {
             delivered(end - start + 1)
             if (range != null) exchange.responseHeaders.add("Content-Range", "bytes $start-$end/${bytes.size}")
             exchange.sendResponseHeaders(if (range == null) 200 else 206, (end - start + 1).toLong())
-            exchange.responseBody.use { it.write(bytes, start, end - start + 1) }
+            exchange.responseBody.use { it.write(responseBody(start, bytes.copyOfRange(start, end + 1))) }
         }
         server.start()
         try {
-            MkvSubtitleReader({ output.add(JSONObject(it)) }, language, label, {}).also { it.playerPositionMs = at }
+            MkvSubtitleReader({ output.add(JSONObject(it)) }, language, label, log).also { it.playerPositionMs = at; ready(it) }
                 .run("http://127.0.0.1:${server.address.port}/fixture.mkv", ordinal)
         } finally { server.stop(0) }
         return output
@@ -72,6 +74,87 @@ class MkvSubtitleReaderTest {
         val events = read(fixture())
         assertEquals(listOf(listOf(4900L, 6150L, "Привет\nмир"), listOf(7000L, 10000L, "Второй титр")), cues(events))
         assertFalse(events.toString(), events.any { it.optString("type") == "error" })
+    }
+
+    private fun retryFixture(): Pair<ByteArray, Int> {
+        val tracks = el(0x1654AE6B, track(2, "rus", "Full"))
+        val video = el(0xA3, byteArrayOf(0x81.toByte(), 0, 0, 0x80.toByte()) + ByteArray(128 * 1024))
+        val last = group(2, 3000, 2000, "Following subtitle")
+        val cluster = el(0x1F43B675, number(0xE7, 1000) + group(2, 0, 1000, "First subtitle") + video + last)
+        val bytes = el(0x1A45DFA3, string(0x4282, "matroska")) + el(0x18538067, tracks + cluster)
+        return bytes to bytes.size - last.size
+    }
+
+    @Test fun refetchesTransientZeroFilledRangeAtTheSameHeaderAndKeepsFollowingCue() {
+        val (bytes, headerAt) = retryFixture()
+        val requests = ArrayList<Int>()
+        val events = read(bytes, responseBody = { start, body ->
+            requests.add(start)
+            if (start == headerAt && requests.count { it == headerAt } == 1) ByteArray(body.size) else body
+        })
+        assertEquals(listOf(listOf(1000L, 2000L, "First subtitle"), listOf(4000L, 6000L, "Following subtitle")), cues(events))
+        assertEquals("The missing header must be retried without skipping it", 2, requests.count { it == headerAt })
+        assertFalse(events.toString(), events.any { it.optString("type") == "error" })
+    }
+
+    @Test fun reportsPermanentZeroFilledRangeAfterBoundedRetries() {
+        val (bytes, headerAt) = retryFixture()
+        var attempts = 0
+        val events = read(bytes, responseBody = { start, body ->
+            if (start == headerAt) { attempts++; ByteArray(body.size) } else body
+        })
+        assertEquals(4, attempts)
+        assertEquals(listOf(listOf(1000L, 2000L, "First subtitle")), cues(events))
+        val error = events.single { it.optString("type") == "error" }.getString("message")
+        assertTrue(error, error.contains("Zero-filled HTTP range at byte $headerAt"))
+    }
+
+    @Test fun doesNotRetryGenuinelyInvalidHeaderWithNonzeroData() {
+        val (bytes, headerAt) = retryFixture()
+        var attempts = 0
+        val events = read(bytes, responseBody = { start, body ->
+            if (start == headerAt) { attempts++; body[0] = 0 }
+            body
+        })
+        assertEquals(1, attempts)
+        assertEquals("Invalid EBML integer", events.single { it.optString("type") == "error" }.getString("message"))
+    }
+
+    @Test fun stoppingDuringZeroRangeRetryCancelsFurtherReadsAndErrors() {
+        val (bytes, headerAt) = retryFixture()
+        lateinit var reader: MkvSubtitleReader
+        var attempts = 0
+        val events = read(bytes, responseBody = { start, body ->
+            if (start == headerAt) { attempts++; ByteArray(body.size) } else body
+        }, ready = { reader = it }, log = { if (it.startsWith("zero-filled subtitle range")) reader.stop() })
+        assertEquals(1, attempts)
+        assertEquals(listOf(listOf(1000L, 2000L, "First subtitle")), cues(events))
+        assertFalse(events.toString(), events.any { it.optString("type") == "error" })
+    }
+
+    @Test fun truncatedHttpRangeStillFailsWithoutZeroRangeRetries() {
+        val (bytes, headerAt) = retryFixture()
+        val messages = ArrayList<String>()
+        val events = read(bytes, responseBody = { start, body ->
+            if (start == headerAt) body.copyOf(body.size - 1) else body
+        }, log = { messages.add(it) })
+        // OkHttp may retry a broken transport itself; the parser must never classify a
+        // truncated response as a complete zero-filled range or enter its recovery loop.
+        assertFalse(messages.toString(), messages.any { it.startsWith("zero-filled subtitle range") })
+        assertEquals(listOf(listOf(1000L, 2000L, "First subtitle")), cues(events))
+        val error = events.single { it.optString("type") == "error" }.getString("message")
+        assertTrue(error.isNotBlank())
+        assertFalse(error, error.startsWith("Zero-filled HTTP range"))
+    }
+
+    @Test fun metadataProbeListsTracksWithoutSelectingOrStreamingCues() {
+        val events = read(fixture(), ordinal = -1)
+        assertEquals(listOf("tracks"), events.map { it.optString("type") })
+        val tracks = events.single().getJSONArray("tracks")
+        assertEquals(2, tracks.length())
+        assertEquals("S_TEXT/UTF8", tracks.getJSONObject(0).getString("mime"))
+        assertEquals("Full", tracks.getJSONObject(0).getString("label"))
+        assertEquals(1, tracks.getJSONObject(1).getInt("ordinal"))
     }
     @Test fun appliesTimestampScaleAndAcceptsOneByteUnknownSegmentSize() {
         assertEquals(listOf(listOf(9800L, 12300L, "Привет\nмир"), listOf(14000L, 20000L, "Второй титр")), cues(read(fixture(2_000_000, true))))

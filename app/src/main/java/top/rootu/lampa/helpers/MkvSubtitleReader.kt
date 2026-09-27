@@ -56,7 +56,7 @@ class MkvSubtitleReader(
         active = null
     }
 
-    /** Blocking; call from a worker thread. [ordinal] indexes the subtitle track list. */
+    /** Blocking; [ordinal] indexes subtitle tracks, or -1 probes metadata without reading cues. */
     fun run(url: String, ordinal: Int) {
         try {
             RangeInput(url).use { stream ->
@@ -67,6 +67,7 @@ class MkvSubtitleReader(
                     return
                 }
                 emitTrackList()
+                if (ordinal < 0) return
                 val chosen = resolveTrack(ordinal)
                 emitOrdinal = ordinal
                 wantedNumber = chosen.number
@@ -365,7 +366,7 @@ class MkvSubtitleReader(
     }
 
     private fun readSignedVInt(stream: InputStream): Long {
-        val first = stream.read()
+        val first = readEbmlFirstByte(stream)
         if (first < 0) throw EOFException("eof")
         position++
         var mask = 0x80
@@ -561,6 +562,17 @@ class MkvSubtitleReader(
             }
         }
 
+        fun hasZeroTailAt(target: Long): Boolean {
+            if (!supportsRange || target < bufferStart || target >= bufferStart + buffer.size) return false
+            for (index in (target - bufferStart).toInt() until buffer.size) if (buffer[index] != 0.toByte()) return false
+            return true
+        }
+
+        fun refetchAt(target: Long) {
+            buffer = ByteArray(0)
+            cursor = target
+        }
+
         override fun read(): Int {
             val one = ByteArray(1)
             return if (read(one, 0, 1) < 0) -1 else one[0].toInt() and 255
@@ -636,7 +648,7 @@ class MkvSubtitleReader(
         if (stopped) return null
         pendingHeader?.let { pendingHeader = null; return it }
         if (limit >= 0 && position >= limit) return null
-        val first = stream.read()
+        val first = readEbmlFirstByte(stream)
         if (first < 0) return null
         position++
         val id = readVIntBody(stream, first, true)
@@ -649,10 +661,35 @@ class MkvSubtitleReader(
     private var lastVIntLength = 0
 
     private fun readVInt(stream: InputStream): Long {
-        val first = stream.read()
+        val first = readEbmlFirstByte(stream)
         if (first < 0) throw EOFException("eof")
         position++
         return readVIntBody(stream, first, false)
+    }
+
+    /**
+     * TorrServer can temporarily answer a valid Range request with zero-filled cache data.
+     * Zero cannot start an EBML ID/size/track integer. Only retry a wholly zero buffered tail,
+     * at the same byte offset; a malformed nonzero header still fails normally.
+     */
+    private fun readEbmlFirstByte(stream: InputStream): Int {
+        var first = stream.read()
+        if (stream !is RangeInput || first != 0 || !stream.hasZeroTailAt(position)) return first
+        for (attempt in 1..ZERO_RANGE_RETRIES) {
+            log("zero-filled subtitle range at byte $position; retry $attempt/$ZERO_RANGE_RETRIES")
+            var delay = ZERO_RANGE_RETRY_MS * attempt
+            while (delay > 0) {
+                if (stopped) throw java.io.InterruptedIOException("Subtitle reading stopped")
+                val pause = minOf(delay, 50L)
+                Thread.sleep(pause)
+                delay -= pause
+            }
+            if (stopped) throw java.io.InterruptedIOException("Subtitle reading stopped")
+            stream.refetchAt(position)
+            first = stream.read()
+            if (first != 0 || !stream.hasZeroTailAt(position)) return first
+        }
+        throw java.io.IOException("Zero-filled HTTP range at byte $position after $ZERO_RANGE_RETRIES retries")
     }
 
     private fun readVIntBody(stream: InputStream, first: Int, keepMarker: Boolean): Long {
@@ -752,6 +789,8 @@ class MkvSubtitleReader(
     companion object {
         private const val TAG = "LampaMkv"
         private const val BUFFER_SIZE = 64 * 1024
+        private const val ZERO_RANGE_RETRIES = 3
+        private const val ZERO_RANGE_RETRY_MS = 250L
 
         /**
          * OkHttp follows the 302/307 redirects TorrServer answers with before it starts

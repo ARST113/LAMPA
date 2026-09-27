@@ -50,7 +50,7 @@ class SubtitleExtractor(
     private var session = 0L
 
     /** Creates the reader for [url] and starts collecting track information. */
-    fun open(url: String, startPositionMs: Long) {
+    fun open(url: String, startPositionMs: Long, probe: Boolean = false) {
         if (url.isEmpty()) return
         stop()
         this.url = url
@@ -58,7 +58,8 @@ class SubtitleExtractor(
         wantedOrdinal = -1
         wantedLanguage = ""
         wantedLabel = ""
-        // Selection follows immediately. Starting here races two readers against one another.
+        // Discovery only reads metadata. A later selection cancels it and starts cue reading.
+        if (probe) restart(-1, "probe")
     }
 
     /** Selects the subtitle track with the given zero based ordinal (order inside the file). */
@@ -110,7 +111,7 @@ class SubtitleExtractor(
         val target = url
         val requestSession = session
         val instance = MkvSubtitleReader({ message ->
-            if (token == generation) emit(JSONObject(message).put("session", requestSession).toString())
+            if (token == generation) emit(JSONObject(message).put("session", requestSession).put("url", target).toString())
         }, wantedLanguage, wantedLabel) { Log.d(TAG, it) }
         instance.playerPositionMs = playerPositionMs
         reader = instance
@@ -142,7 +143,8 @@ class SubtitleExtractor(
                     val extractor = current ?: SubtitleExtractor(context, emit).also { current = it }
                     extractor.open(
                         payload.optString("url"),
-                        payload.optLong("position", 0L)
+                        payload.optLong("position", 0L),
+                        payload.optBoolean("probe", false)
                     )
                 }
 

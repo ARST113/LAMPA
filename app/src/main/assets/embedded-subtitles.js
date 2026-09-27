@@ -3,7 +3,8 @@
     if (window.__lampaNativeSubsInstalled) return;
     window.__lampaNativeSubsInstalled = true;
 
-    var state = {item: null, url: '', cues: [], seen: {}, session: 0, lastClock: -1};
+    var state = {item: null, url: '', cues: [], seen: {}, session: 0, lastClock: -1,
+        sourceUrl: '', sourceVideo: null, probeUrl: '', menuUrl: '', menuVideo: null, menuItems: []};
     function send(payload) {
         payload.session = state.session;
         window.cefriumQuery({request: JSON.stringify(payload), onSuccess: function () {}, onFailure: function (code, message) {
@@ -16,6 +17,9 @@
     function mediaUrl() {
         var data = window.Lampa && Lampa.Player && Lampa.Player.playdata ? Lampa.Player.playdata() : null;
         var el = video();
+        // Lampa keeps &preload in playdata, but assigns the actual &play URL to the video.
+        if (el && /^https?:\/\//i.test(el.currentSrc || '')) return el.currentSrc;
+        if (el && /^https?:\/\//i.test(el.src || '')) return el.src;
         return data && typeof data.url === 'string' ? data.url : el && (el.currentSrc || el.src) || '';
     }
     function position() {
@@ -41,17 +45,49 @@
         target.style.display = lines.length ? 'inline-block' : 'none';
     }
     function stop() {
-        if (!state.item) return;
+        if (!state.item && !state.probeUrl) return;
+        var wasShowing = !!state.item;
         state.item = null;
+        state.probeUrl = '';
         state.cues = [];
         state.seen = {};
         state.session++;
         send({type: 'subs-stop'});
-        clearText();
+        if (wasShowing) clearText();
+    }
+    function syncSource() {
+        var el = video();
+        var url = mediaUrl();
+        if (state.sourceUrl !== url || state.sourceVideo !== el) {
+            if (state.item || state.probeUrl) stop(); else state.session++;
+            state.sourceUrl = url;
+            state.sourceVideo = el;
+            state.probeUrl = '';
+            state.url = '';
+        }
+        return url;
+    }
+    function hasOriginalSubtitles() {
+        var el = video();
+        var data = window.Lampa && Lampa.Player && Lampa.Player.playdata ? Lampa.Player.playdata() : null;
+        return el && ((el.textTracks && el.textTracks.length) || (el.customSubs && el.customSubs.length)) ||
+            data && data.subtitles && data.subtitles.length;
+    }
+    function hasMenu(url) {
+        return state.menuUrl === url && state.menuVideo === video() && state.menuItems.some(function (item) {
+            return item && Number.isInteger(Number(item.index)) && Number(item.index) >= 0;
+        });
+    }
+    function discover() {
+        var url = syncSource();
+        if (!video() || !/^https?:\/\//i.test(url) || !window.Lampa || !Lampa.PlayerPanel || !Lampa.PlayerPanel.setSubs ||
+            state.item || state.probeUrl === url || hasOriginalSubtitles() || hasMenu(url)) return;
+        state.probeUrl = url;
+        send({type: 'subs-open', url: url, position: position(), probe: true});
     }
     function start(item) {
         var ordinal = Number(item.index);
-        var url = mediaUrl();
+        var url = syncSource();
         if (!Number.isInteger(ordinal) || ordinal < 0 || !/^https?:\/\//i.test(url)) return;
         if (state.item === item && state.url === url) return;
         state.session++;
@@ -71,11 +107,20 @@
     }
     function prepare(items) {
         var el = video();
+        // Lampa can replace the whole menu when a provider's subtitles arrive later.
+        // Its selection handler only disables entries in that new array.
+        if (state.item && (!items || items.indexOf(state.item) === -1)) stop();
+        state.menuUrl = mediaUrl();
+        state.menuVideo = el;
+        state.menuItems = items || [];
         if (!el || el.textTracks && el.textTracks.length) return items;
         (items || []).forEach(function (item, index) {
             // URL subtitles already have a working loader; preserve their callbacks.
             if (!item || item.__lampaNativeSub || item.url || item.is_url || !Number.isInteger(Number(item.index))) return;
             var descriptor = Object.getOwnPropertyDescriptor(item, 'mode');
+            // HLS uses its own mode accessor while textTracks is empty. Only ghost
+            // metadata accessors need replacement; preserve working provider modes.
+            if (descriptor && (descriptor.get || descriptor.set) && !item.ghost) return;
             if (descriptor && descriptor.configurable === false) {
                 // tracks.js creates a non-configurable mode accessor. Lampa's option
                 // handler retains the array, so replace only this entry, keeping its
@@ -101,6 +146,7 @@
         var el = video();
         if (!el || el.__lampaNativeSubsBound) return;
         el.__lampaNativeSubsBound = true;
+        el.addEventListener('loadedmetadata', discover);
         el.addEventListener('timeupdate', function () {
             paint();
             if (state.item && Math.abs(position() - state.lastClock) > 4000) {
@@ -149,8 +195,20 @@
         onNative: function (raw) {
             var message;
             try { message = JSON.parse(raw); } catch (_) { return; }
+            if (!message) return;
             if (message.session !== undefined && message.session !== state.session) return;
-            if (message.type === 'cues' && state.item && Number(message.ordinal) === Number(state.item.index)) {
+            if (message.url !== undefined && message.url !== mediaUrl()) return;
+            if (message.type === 'tracks' && message.url === state.probeUrl && !state.item &&
+                !hasOriginalSubtitles() && !hasMenu(message.url)) {
+                var items = (message.tracks || []).filter(function (track) {
+                    return track.mime === 'S_TEXT/UTF8' && Number.isInteger(Number(track.ordinal)) && Number(track.ordinal) >= 0;
+                }).map(function (track) {
+                    return {index: Number(track.ordinal), language: track.language || '', label: track.label || '',
+                        ghost: false, selected: false};
+                });
+                // Option.setSubtitles exposes the button, and its existing onSelect sets mode.
+                if (items.length) Lampa.PlayerPanel.setSubs(items);
+            } else if (message.type === 'cues' && state.item && Number(message.ordinal) === Number(state.item.index)) {
                 (message.cues || []).forEach(function (cue) {
                     if (!Number.isFinite(cue[0]) || !Number.isFinite(cue[1]) || cue[1] <= cue[0] || typeof cue[2] !== 'string') return;
                     var key = JSON.stringify(cue);
@@ -163,8 +221,8 @@
     };
     setInterval(function () {
         hook(); bind();
-        if (state.item && state.url !== mediaUrl()) stop();
+        discover();
         paint();
     }, 1000);
-    hook(); bind();
+    hook(); bind(); discover();
 })();
