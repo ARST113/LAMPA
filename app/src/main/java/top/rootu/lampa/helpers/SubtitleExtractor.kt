@@ -51,8 +51,9 @@ class SubtitleExtractor(
         if (url.isEmpty()) return
         this.url = url
         playerPositionMs = startPositionMs.coerceAtLeast(0L)
-        if (wantedOrdinal < 0) return
-        restart(wantedOrdinal, "open")
+        // The page asks for a track right after it opens the stream, but a session that only
+        // reloads the media should still end up with subtitles, so the first track is the default.
+        restart(if (wantedOrdinal >= 0) wantedOrdinal else 0, "open")
     }
 
     /** Selects the subtitle track with the given zero based ordinal (order inside the file). */

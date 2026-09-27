@@ -547,6 +547,7 @@ class Cefrium(
                         var video = __subsVideoEl();
                         if (!video || video.__lampaNativeSubsBound) return;
                         video.__lampaNativeSubsBound = true;
+                        console.log('[LAMPA subs] video bound, textTracks=' + (video.textTracks ? video.textTracks.length : 'n/a') + ' audioTracks=' + (video.audioTracks ? video.audioTracks.length : 'n/a'));
                         video.addEventListener('timeupdate', __subsPaint);
                         video.addEventListener('seeked', __subsPaint);
                         video.addEventListener('play', function() { __subsSendC({ type: 'subs-play' }); });
@@ -560,7 +561,11 @@ class Cefrium(
 
                     function __subsStart(item) {
                         var ordinal = parseInt(item.index, 10);
-                        if (!(ordinal >= 0)) return;
+                        if (!(ordinal >= 0)) {
+                            console.warn('[LAMPA subs] item without a usable index: ' + JSON.stringify(item));
+                            return;
+                        }
+                        console.log('[LAMPA subs] start index=' + ordinal + ' lang=' + (item.language || '') + ' label=' + (item.label || item.title || ''));
                         var video = __subsVideoEl();
                         var url = __subsMediaUrl();
                         if (!url || url.indexOf('blob:') === 0 || url.indexOf('data:') === 0) {
@@ -598,6 +603,7 @@ class Cefrium(
                     }
 
                     function __subsStop() {
+                        console.log('[LAMPA subs] stop');
                         __nativeSubs.item = null;
                         __nativeSubs.cues = [];
                         __subsSendC({ type: 'subs-stop' });
@@ -647,6 +653,7 @@ class Cefrium(
                             panel.setSubs = function(items) {
                                 var wrapped = items;
                                 try {
+                                    console.log('[LAMPA subs] panel items: ' + JSON.stringify(items));
                                     wrapped = (items || []).map(function(source) {
                                         if (!source || typeof source.index === 'undefined') return source;
                                         var clone = {
