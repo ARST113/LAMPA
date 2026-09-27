@@ -370,10 +370,18 @@ class MkvSubtitleReader(
     private var pendingEndMs = 0L
     private var cueBatches = 0
     private var cueCount = 0
+    private var unsupportedLogged = false
 
     private fun deliver(timeMs: Long, payload: ByteArray) {
         if (stopped || payload.isEmpty()) return
-        val cues = parseSubRip(String(payload, Charset.forName("UTF-8")), timeMs)
+        val body = String(payload, Charset.forName("UTF-8"))
+        if (!unsupportedLogged && body.isNotEmpty() && !body.contains("-->")) {
+            // A PGS or ASS track carries a different payload; say so instead of failing mute.
+            unsupportedLogged = true
+            log("track payload is not SubRip, first bytes: ${body.take(16)}")
+            emitError("only SubRip subtitle tracks can be read (${body.take(8)})")
+        }
+        val cues = parseSubRip(body, timeMs)
         if (cues.length() == 0) return
         for (i in 0 until cues.length()) {
             pending.put(cues.getJSONArray(i))

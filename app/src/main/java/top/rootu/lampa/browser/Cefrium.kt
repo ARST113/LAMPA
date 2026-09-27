@@ -278,11 +278,16 @@ class Cefrium(
                 }
 
                 "subs-open", "subs-select", "subs-play", "subs-pause", "subs-seek", "subs-stop" -> {
+                    // The reader reports cues from its own worker thread, but the engine may only
+                    // be driven from the UI thread, so every message is handed over first.
                     SubtitleExtractor.handle(mainActivity, payload) { message ->
-                        mainActivity.runVoidJsFunc(
-                            "window.__lampaNativeSubs && window.__lampaNativeSubs.onNative",
-                            JSONObject.quote(message)
-                        )
+                        val script = JSONObject.quote(message)
+                        mainActivity.runOnUiThread {
+                            mainActivity.runVoidJsFunc(
+                                "window.__lampaNativeSubs && window.__lampaNativeSubs.onNative",
+                                script
+                            )
+                        }
                     }
                     callback.success("{}")
                     true
