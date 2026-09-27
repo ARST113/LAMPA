@@ -391,7 +391,17 @@ class AndroidJS(private val mainActivity: MainActivity, private val browser: Bro
 
                 override fun onPostExecute(result: String?) {
                     mainActivity.runOnUiThread {
-                        val js = ("Lampa.Android.httpCall("
+                        // The Cefrium bridge cannot answer window.AndroidJS.getResp(index)
+                        // synchronously, so push the body into the page first: LAMPA calls
+                        // Lampa.Android.httpCall() -> AndroidJS.getResp(index) in the same
+                        // tick. On the WebView engine __storeResp does not exist and the
+                        // guard leaves the old synchronous getResp() behaviour untouched.
+                        val body = reqResponse[returnI.toString()].orEmpty()
+                        val store = ("try{if(typeof AndroidJS!=='undefined'&&AndroidJS.__storeResp)"
+                                + "AndroidJS.__storeResp(" + returnI.toString() + ","
+                                + JSONObject.quote(body) + ");}catch(e){}")
+                        val js = (store
+                                + "Lampa.Android.httpCall("
                                 + returnI.toString() + ", '"
                                 + result
                             ?.replace("\\", "\\\\")
