@@ -1,4 +1,4 @@
-﻿package top.rootu.lampa.helpers
+package top.rootu.lampa.helpers
 
 import android.content.Context
 import android.util.Log
@@ -8,6 +8,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
+import androidx.media3.common.text.Cue
 import androidx.media3.common.text.CueGroup
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -38,8 +39,10 @@ class SubtitleExtractor(
     private var reportedCount = -1
 
     private var selectedOrdinal = -1
-    private var pendingOrdinal = -1
-    private var pendingPositionMs = 0L
+
+    /** Ordinal the page asked for. It survives until the tracks actually exist. */
+    private var wantedOrdinal = -1
+    private var wantedPositionMs = 0L
 
     private val listener = object : Player.Listener {
         override fun onTracksChanged(tracks: Tracks) {
@@ -61,21 +64,21 @@ class SubtitleExtractor(
                     )
                 }
                 emit(JSONObject().put("type", "tracks").put("tracks", array).toString())
+                Log.d(TAG, "tracks: " + array.toString())
             }
 
-            applyPending()
+            applyWanted()
         }
 
         override fun onCues(cueGroup: CueGroup) {
             if (selectedOrdinal < 0) return
+            logTimeFields()
             val cues = JSONArray()
             for (cue in cueGroup.cues) {
                 val text = cue.text?.toString()?.trim().orEmpty()
                 if (text.isEmpty()) continue
-                val rawStart = cue.startTimeMs
-                val rawEnd = cue.endTimeMs
-                val start = if (rawStart == C.TIME_UNSET) -1L else rawStart
-                val end = if (rawEnd == C.TIME_UNSET) -1L else rawEnd
+                val start = cueTimeMs(cue, "startTimeMs", "startTimeUs")
+                val end = cueTimeMs(cue, "endTimeMs", "endTimeUs")
                 cues.put(JSONArray().put(start).put(end).put(text))
             }
             if (cues.length() == 0) return
@@ -86,6 +89,11 @@ class SubtitleExtractor(
                     .put("cues", cues)
                     .toString()
             )
+        }
+
+        override fun onPlaybackStateChanged(state: Int) {
+            Log.d(TAG, "state=${stateName(state)}")
+            if (state == Player.STATE_READY) applyWanted()
         }
 
         override fun onPlayerError(error: PlaybackException) {
@@ -100,9 +108,10 @@ class SubtitleExtractor(
     }
 
     /** Creates the reader for [url] and starts collecting track information. */
-    fun open(url: String) {
+    fun open(url: String, startPositionMs: Long) {
         if (url.isEmpty()) return
         release()
+        wantedPositionMs = startPositionMs.coerceAtLeast(0L)
 
         val rendererLooper = android.os.Looper.getMainLooper()
         val trackSelector = DefaultTrackSelector(context)
@@ -121,14 +130,16 @@ class SubtitleExtractor(
         instance.addListener(listener)
         instance.setMediaItem(MediaItem.fromUri(url))
         instance.prepare()
+        if (wantedPositionMs > 0) instance.seekTo(wantedPositionMs)
         instance.playWhenReady = false
+        Log.d(TAG, "open url=$url start=$wantedPositionMs")
     }
 
     /** Selects the subtitle track with the given zero based ordinal (order inside the file). */
     fun select(ordinal: Int, positionMs: Long) {
-        pendingOrdinal = ordinal
-        pendingPositionMs = positionMs
-        applyPending()
+        wantedOrdinal = ordinal
+        wantedPositionMs = positionMs.coerceAtLeast(0L)
+        applyWanted()
     }
 
     fun play() {
@@ -142,12 +153,12 @@ class SubtitleExtractor(
     fun seek(positionMs: Long) {
         val instance = player ?: return
         instance.seekTo(positionMs.coerceAtLeast(0L))
-        pendingPositionMs = positionMs.coerceAtLeast(0L)
+        wantedPositionMs = positionMs.coerceAtLeast(0L)
     }
 
     fun stop() {
         selectedOrdinal = -1
-        pendingOrdinal = -1
+        wantedOrdinal = -1
         player?.playWhenReady = false
     }
 
@@ -163,33 +174,135 @@ class SubtitleExtractor(
         textGroup = null
         reportedCount = -1
         selectedOrdinal = -1
-        pendingOrdinal = -1
+        wantedOrdinal = -1
+        wantedPositionMs = 0L
     }
 
-    private fun applyPending() {
+    /**
+     * Applies [wantedOrdinal] as soon as both the player and its text tracks exist.
+     * The page asks for a track the moment the menu entry is tapped, which is usually
+     * before ExoPlayer has finished opening the stream, so the request has to be
+     * remembered rather than dropped.
+     */
+    private fun applyWanted() {
         val instance = player ?: return
         val group = textGroup ?: return
-        val ordinal = pendingOrdinal
-        if (ordinal < 0 || ordinal >= group.length) return
+        val ordinal = wantedOrdinal
+        if (ordinal < 0) return
+        if (ordinal >= group.length) {
+            Log.w(TAG, "subtitle ordinal $ordinal out of range 0..${group.length - 1}")
+            emit(
+                JSONObject()
+                    .put("type", "error")
+                    .put("message", "subtitle ordinal $ordinal out of range 0..${group.length - 1}")
+                    .toString()
+            )
+            return
+        }
 
         selectedOrdinal = ordinal
-        pendingOrdinal = -1
 
         val parameters = instance.trackSelectionParameters
             .buildUpon()
             .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, ordinal))
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
             .build()
         instance.trackSelectionParameters = parameters
 
-        if (pendingPositionMs > 0) {
-            instance.seekTo(pendingPositionMs)
-            pendingPositionMs = 0L
+        if (wantedPositionMs > 0) {
+            instance.seekTo(wantedPositionMs)
         }
         instance.playWhenReady = true
+
+        val format = group.getTrackFormat(ordinal)
+        logTimeFields()
+        Log.d(
+            TAG,
+            "selected ordinal=$ordinal language=${format.language} label=${format.label} " +
+                "mime=${format.sampleMimeType} seek=$wantedPositionMs " + cueTimingProfile()
+        )
+        emit(
+            JSONObject()
+                .put("type", "selected")
+                .put("ordinal", ordinal)
+                .put("language", format.language ?: "")
+                .put("mime", format.sampleMimeType ?: "")
+                .toString()
+        )
+    }
+
+    /** Human readable description of how cue timings are being read; used for diagnostics. */
+    fun cueTimingProfile(): String {
+        val start = startField?.name ?: "none"
+        val end = endField?.name ?: "none"
+        return "start=$start end=$end"
     }
 
     companion object {
         private const val TAG = "LampaSubtitles"
+
+        /**
+         * The Cefrium SDK bundles its own copy of the media3 classes, and the version it
+         * ships exposes the cue timings differently from the media3 artifact declared in
+         * build.gradle (`startTimeMs`/`endTimeMs` on recent releases, `startTimeUs`/
+         * `endTimeUs` on older ones, sometimes not public at all). Reading them through
+         * reflection keeps this class compiling and working against whatever copy ends
+         * up on the classpath; the resolved field names are logged once.
+         */
+        private val startField: java.lang.reflect.Field? by lazy {
+            findTimeField("startTimeMs", "startTimeUs", "startTime")
+        }
+        private val endField: java.lang.reflect.Field? by lazy {
+            findTimeField("endTimeMs", "endTimeUs", "endTime")
+        }
+        private var fieldsLogged = false
+
+        private fun findTimeField(vararg names: String): java.lang.reflect.Field? {
+            var type: Class<*>? = Cue::class.java
+            while (type != null && type != Any::class.java) {
+                for (name in names) {
+                    try {
+                        val field = type.getDeclaredField(name)
+                        field.isAccessible = true
+                        return field
+                    } catch (_: NoSuchFieldException) {
+                    }
+                }
+                type = type.superclass
+            }
+            return null
+        }
+
+        private fun cueTimeMs(cue: Cue, vararg names: String): Long {
+            val field = when {
+                names.contains("startTimeMs") -> startField
+                names.contains("endTimeMs") -> endField
+                else -> null
+            }
+            if (field == null) return -1L
+            return try {
+                val value = field.getLong(cue)
+                if (value == C.TIME_UNSET) -1L
+                else if (field.name.endsWith("Us")) value / 1000L
+                else value
+            } catch (e: Exception) {
+                -1L
+            }
+        }
+
+        private fun logTimeFields() {
+            if (fieldsLogged) return
+            fieldsLogged = true
+            Log.d(TAG, "cue timing fields: start=${startField?.name} end=${endField?.name}")
+        }
+
+        private fun stateName(state: Int): String = when (state) {
+            Player.STATE_IDLE -> "idle"
+            Player.STATE_BUFFERING -> "buffering"
+            Player.STATE_READY -> "ready"
+            Player.STATE_ENDED -> "ended"
+            else -> "unknown($state)"
+        }
 
         @Volatile
         private var current: SubtitleExtractor? = null
@@ -199,7 +312,10 @@ class SubtitleExtractor(
             when (payload.optString("type")) {
                 "subs-open" -> {
                     val extractor = current ?: SubtitleExtractor(context, emit).also { current = it }
-                    extractor.open(payload.optString("url"))
+                    extractor.open(
+                        payload.optString("url"),
+                        payload.optLong("position", 0L)
+                    )
                 }
 
                 "subs-select" -> current?.select(

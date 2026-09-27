@@ -564,16 +564,24 @@ class Cefrium(
                         }
                         if (url !== __nativeSubs.url) {
                             __nativeSubs.url = url;
-                            __subsSendC({ type: 'subs-open', url: url });
+                            __nativeSubs.ordinalSent = -1;
+                            __subsSendC({
+                                type: 'subs-open',
+                                url: url,
+                                position: video ? Math.max(0, Math.round(video.currentTime * 1000)) : 0
+                            });
+                            console.log('[LAMPA subs] open ' + url);
                         }
                         __nativeSubs.item = item;
                         __nativeSubs.cues = [];
                         __nativeSubs.seen = {};
+                        __nativeSubs.ordinalSent = ordinal;
                         __subsSendC({
                             type: 'subs-select',
                             ordinal: ordinal,
                             position: video ? Math.max(0, Math.round(video.currentTime * 1000) - 2000) : 0
                         });
+                        console.log('[LAMPA subs] select ordinal ' + ordinal + ' of ' + __nativeSubs.list.length + ' native tracks');
                         __subsPaint();
                     }
 
@@ -605,6 +613,13 @@ class Cefrium(
                                 __subsPaint();
                             } else if (message.type === 'tracks') {
                                 __nativeSubs.list = message.tracks || [];
+                                var names = [];
+                                for (var t = 0; t < __nativeSubs.list.length; t++) {
+                                    names.push(__nativeSubs.list[t].ordinal + ':' + __nativeSubs.list[t].mime + ':' + __nativeSubs.list[t].label);
+                                }
+                                console.log('[LAMPA subs] native tracks ' + __nativeSubs.list.length + ' [' + names.join(' | ') + ']');
+                            } else if (message.type === 'selected') {
+                                console.log('[LAMPA subs] native selected ' + message.ordinal + ' ' + message.mime);
                             } else if (message.type === 'error') {
                                 console.warn('[LAMPA subs] ' + message.message);
                             }
