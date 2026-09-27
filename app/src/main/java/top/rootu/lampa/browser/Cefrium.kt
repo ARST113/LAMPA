@@ -9,6 +9,7 @@ import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.widget.FrameLayout
 import com.cefrium.CefriumBrowser
+import com.cefrium.CefriumDisplayHandler
 import org.chromium.base.CommandLine
 import org.json.JSONArray
 import org.json.JSONObject
@@ -86,6 +87,23 @@ class Cefrium(
 
         cef.setQueryHandler { _, request, _, callback ->
             handleQuery(request, callback)
+        }
+
+        // Diagnostics: Chromium's JS console and the request interceptor are the only
+        // window into the page on this engine (there is no chrome://inspect here).
+        // LAMPA logs player/subtitle/network failures through console.log/error only.
+        cef.setDisplayHandler(object : CefriumDisplayHandler() {
+            override fun onConsoleMessage(level: Int, message: String?, source: String?, line: Int) {
+                Log.d(CONSOLE_TAG, "[$level] $message ($source:$line)")
+            }
+
+            override fun onStatusMessage(value: String?) {
+                Log.d(CONSOLE_TAG, "status: $value")
+            }
+        })
+
+        cef.setOnRequestInterceptedListener { method, url, blocked ->
+            Log.d(NET_TAG, "$method $url blocked=$blocked")
         }
 
         cef.setOnLoadingStateChangedListener { isLoading, _, _ ->
@@ -437,5 +455,7 @@ class Cefrium(
 
     companion object {
         private const val TAG = "LampaCefrium"
+        private const val CONSOLE_TAG = "LampaConsole"
+        private const val NET_TAG = "LampaNet"
     }
 }
