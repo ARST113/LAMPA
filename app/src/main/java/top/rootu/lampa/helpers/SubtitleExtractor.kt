@@ -1,175 +1,217 @@
 package top.rootu.lampa.helpers
 
-import android.content.Context
 import android.util.Log
 import org.json.JSONObject
+import java.net.URI
+import java.nio.ByteBuffer
 
-/**
- * Embedded subtitle reader for the torrent MKVs LAMPA plays.
- *
- * Chromium only turns in-band media tracks into `HTMLVideoElement.textTracks` when the stream
- * codec is WebVTT (media/filters/ffmpeg_demuxer.cc: `codec_id != AV_CODEC_ID_WEBVTT -> continue`).
- * Every subtitle track inside the torrent MKVs this app plays is `subrip`, so the page always
- * sees `video.textTracks.length === 0` and the LAMPA plugins that switch subtitles by index
- * (`tracks.js`, `pidtor.js`) silently do nothing. TorrServer cannot transcode them either
- * (`/gst/settings` reports `built_in: false`).
- *
- * The first attempt used a headless ExoPlayer for this. It discovered the tracks correctly, but
- * the media3 copy bundled inside the Cefrium runtime never invoked the cue callback, so the
- * reader now parses the container itself in [MkvSubtitleReader]: a track list plus
- * `[startMs, endMs, text]` cues are pushed to the page, which paints them into LAMPA's own
- * subtitle overlay - a path Chromium fully supports.
- */
-class SubtitleExtractor(
-    @Suppress("UNUSED_PARAMETER") private val context: Context,
-    private val emit: (String) -> Unit
-) {
-
-    private var reader: MkvSubtitleReader? = null
-    private var thread: Thread? = null
-
-    @Volatile
-    private var url = ""
-
-    @Volatile
-    private var wantedOrdinal = -1
-
-    @Volatile
-    private var wantedLanguage = ""
-
-    @Volatile
-    private var wantedLabel = ""
-
-    @Volatile
-    private var playerPositionMs = 0L
-
-    @Volatile
-    private var generation = 0
-
-    @Volatile
-    private var session = 0L
-
-    /** Creates the reader for [url] and starts collecting track information. */
-    fun open(url: String, startPositionMs: Long, probe: Boolean = false) {
-        if (url.isEmpty()) return
-        stop()
-        this.url = url
-        playerPositionMs = startPositionMs.coerceAtLeast(0L)
-        wantedOrdinal = -1
-        wantedLanguage = ""
-        wantedLabel = ""
-        // Discovery only reads metadata. A later selection cancels it and starts cue reading.
-        if (probe) restart(-1, "probe")
-    }
-
-    /** Selects the subtitle track with the given zero based ordinal (order inside the file). */
-    fun select(ordinal: Int, language: String, label: String, positionMs: Long) {
-        if (url.isEmpty()) return
-        wantedOrdinal = ordinal
-        wantedLanguage = language
-        wantedLabel = label
-        playerPositionMs = positionMs.coerceAtLeast(0L)
-        restart(ordinal, "select")
-    }
-
-    fun play() = Unit
-
-    fun pause() = Unit
-
-    /** The reader may outrun the player, so it is told where playback currently is. */
-    fun seek(positionMs: Long) {
-        updatePosition(positionMs)
-        if (wantedOrdinal >= 0) restart(wantedOrdinal, "seek")
-    }
-
-    fun updatePosition(positionMs: Long) {
-        playerPositionMs = positionMs.coerceAtLeast(0L)
-        reader?.playerPositionMs = playerPositionMs
-    }
-
-    fun stop() {
-        generation++
-        reader?.stop()
-        reader = null
-        thread?.interrupt()
-    }
-
-    fun release() {
-        stop()
-        wantedOrdinal = -1
-        url = ""
-    }
-
-    @Synchronized
-    private fun restart(ordinal: Int, reason: String) {
-        generation++
-        val token = generation
-        reader?.stop()
-        reader = null
-        thread?.interrupt()
-
-        val target = url
-        val requestSession = session
-        val instance = MkvSubtitleReader({ message ->
-            if (token == generation) emit(JSONObject(message).put("session", requestSession).put("url", target).toString())
-        }, wantedLanguage, wantedLabel) { Log.d(TAG, it) }
-        instance.playerPositionMs = playerPositionMs
-        reader = instance
-        Log.d(TAG, "$reason: reading subtitles ordinal=$ordinal at $playerPositionMs ms")
-
-        val worker = Thread({
-            instance.run(target, ordinal)
-            if (token == generation) Log.d(TAG, "subtitle reader finished")
-        }, "lampa-subtitles")
-        worker.isDaemon = true
-        thread = worker
-        worker.start()
-    }
-
+/** Collects embedded subtitle text from the browser's own media responses. No second HTTP reader. */
+class SubtitleExtractor {
     companion object {
         private const val TAG = "LampaSubtitles"
 
-        @Volatile
-        private var current: SubtitleExtractor? = null
+        private class Media(var url: String) {
+            val cues = SubtitleCueCache()
+            var tracks: JSONObject? = null
+            val parser = MkvSubtitleStream({ raw ->
+                val message = JSONObject(raw)
+                when (message.optString("type")) {
+                    "tracks" -> tracks = message
+                    "cues" -> cues.accept(message)
+                }
+                if (canonical(url) == canonical(selectedUrl)) {
+                    when (message.optString("type")) {
+                        "tracks" -> { resolveSelection(this); if (probing) deliver(message) else announceSelection(this) }
+                        "cues" -> if (ordinal >= 0 && message.optInt("ordinal", -1) == nativeOrdinal) {
+                            deliver(JSONObject(message.toString()).put("ordinal", ordinal))
+                        }
+                    }
+                }
+            }) { Log.d(TAG, it) }
+        }
 
-        /** Handles one request coming from the injected page bridge. */
-        fun handle(context: Context, payload: JSONObject, emit: (String) -> Unit) {
-            if (payload.optString("type") in listOf("subs-open", "subs-select")) {
-                if (current == null) current = SubtitleExtractor(context, emit)
+        // Two entries tolerate a late response from the previous film without losing the
+        // current film's tracks. Each owns a bounded text cache and never stores video.
+        private val media = LinkedHashMap<String, Media>()
+        private val redirects = LinkedHashMap<String, String>()
+        private val pendingHeaders = LinkedHashMap<String, ByteArray>()
+        private var selectedUrl = ""
+        private var session = 0L
+        private var ordinal = -1
+        private var nativeOrdinal = -1
+        private var language = ""
+        private var label = ""
+        private var positionMs = 0L
+        private var probing = false
+        private var emit: ((String) -> Unit)? = null
+
+        private fun canonical(url: String): String {
+            var key = url
+            repeat(8) { key = redirects[key] ?: return key }
+            return key
+        }
+
+        private fun source(rawUrl: String): Media {
+            val url = canonical(rawUrl)
+            media[url]?.let { return it }
+            while (media.size >= 2) {
+                val stale = media.keys.firstOrNull { it != canonical(selectedUrl) } ?: media.keys.first()
+                media.remove(stale)
             }
-            current?.session = payload.optLong("session", 0L)
-            when (payload.optString("type")) {
-                "subs-open" -> {
-                    val extractor = current ?: SubtitleExtractor(context, emit).also { current = it }
-                    extractor.open(
-                        payload.optString("url"),
-                        payload.optLong("position", 0L),
-                        payload.optBoolean("probe", false)
-                    )
-                }
+            return Media(url).also { media[url] = it }
+        }
 
-                "subs-select" -> current?.let { extractor ->
-                    val source = payload.optString("url")
-                    if (source.isNotBlank() && extractor.url != source) extractor.open(source, payload.optLong("position", 0L))
-                    extractor.select(payload.optInt("ordinal", 0), payload.optString("language", ""),
-                        payload.optString("label", ""), payload.optLong("position", 0L))
-                }
+        /** TorrServer's JSON preload/status endpoint shares the .mkv path with the video. */
+        private fun allowed(url: String): Boolean = runCatching {
+            val uri = URI(url)
+            uri.scheme in listOf("http", "https") &&
+                !Regex("(?:^|&)(?:preload|stat)(?:=|&|$)").containsMatchIn(uri.rawQuery.orEmpty())
+        }.getOrDefault(false)
 
-                "subs-play" -> current?.play()
+        private fun isMedia(url: String): Boolean = runCatching {
+            val path = URI(url).path.orEmpty()
+            allowed(url) && (media.containsKey(canonical(url)) || canonical(url) == canonical(selectedUrl) ||
+                path.endsWith(".mkv", true) || path == "/stream" || path.contains("/stream/") ||
+                redirects.keys.any { canonical(it) == canonical(url) && URI(it).path.orEmpty().endsWith(".mkv", true) })
+        }.getOrDefault(false)
 
-                "subs-pause" -> current?.pause()
-
-                "subs-seek" -> current?.seek(payload.optLong("position", 0L))
-
-                "subs-time" -> current?.updatePosition(payload.optLong("position", 0L))
-
-                "subs-stop" -> current?.stop()
+        @Synchronized
+        fun onRedirect(old: String?, new: String?) {
+            if (old == null || new == null || !allowed(old) || !allowed(new)) return
+            val previous = canonical(old)
+            val target = canonical(new)
+            if (previous == target) return
+            // A new signed CDN URL is a replacement, not another hop in an ever-growing chain.
+            redirects.entries.forEach { if (it.value == previous) it.setValue(target) }
+            redirects[old] = target
+            redirects[previous] = target
+            media.remove(previous)?.let {
+                it.url = target
+                if (!media.containsKey(target)) media[target] = it
+            }
+            while (redirects.size > 32) {
+                val stale = redirects.keys.first { it != selectedUrl && it != old }
+                redirects.remove(stale)
             }
         }
 
+        @Synchronized
+        fun onResponse(url: String?, status: Int) {
+            if (url == null || status !in 200..299 || !allowed(url)) return
+            if (isMedia(url)) {
+                pendingHeaders.remove(url)
+                source(url).parser.beginResponse()
+            }
+            else {
+                // Remember at most four signature bytes, even before loadedmetadata lets
+                // JavaScript tell us the video URL. Extensionless MKVs need their Tracks too.
+                pendingHeaders[url] = byteArrayOf()
+                while (pendingHeaders.size > 32) pendingHeaders.remove(pendingHeaders.keys.first())
+            }
+        }
+
+        @Synchronized
+        fun onData(url: String?, data: ByteBuffer?) {
+            if (url == null || data == null || !allowed(url)) return
+            // CEF owns the native buffer only during this callback. Parse synchronously and
+            // retain text only; an unbounded async queue would accumulate video chunks.
+            val copy = data.duplicate()
+            var prefix = pendingHeaders[url] ?: byteArrayOf()
+            if (!isMedia(url)) {
+                prefix = pendingHeaders[url] ?: return
+                val needed = minOf(4 - prefix.size, copy.remaining())
+                val signature = prefix + ByteArray(needed).also { copy.duplicate().get(it) }
+                if (signature.size < 4) { pendingHeaders[url] = signature; return }
+                pendingHeaders.remove(url)
+                if (!signature.contentEquals(byteArrayOf(0x1A, 0x45, 0xDF.toByte(), 0xA3.toByte()))) return
+            } else pendingHeaders.remove(url)
+            val bytes = ByteArray(copy.remaining())
+            copy.get(bytes)
+            try {
+                source(url).parser.feed(if (prefix.isEmpty()) bytes else prefix + bytes)
+            } catch (error: Exception) {
+                Log.w(TAG, "Media subtitle framing reset: ${error.javaClass.simpleName}")
+                media[canonical(url)]?.parser?.beginResponse()
+            }
+        }
+
+        private fun deliver(message: JSONObject) {
+            // Copy before adding selection state: cached metadata belongs to the source.
+            emit?.invoke(JSONObject(message.toString()).put("session", session).put("url", selectedUrl).toString())
+        }
+
+        private fun announceSelection(source: Media) {
+            val tracks = source.tracks?.optJSONArray("tracks") ?: return
+            for (i in 0 until tracks.length()) {
+                val track = tracks.getJSONObject(i)
+                if (track.optInt("ordinal", -1) == nativeOrdinal) {
+                    deliver(JSONObject().put("type", "selected").put("ordinal", ordinal).put("mime", track.optString("mime")))
+                    return
+                }
+            }
+        }
+
+        private fun resolveSelection(source: Media) {
+            nativeOrdinal = source.tracks?.optJSONArray("tracks")?.let {
+                SubtitleCueCache.resolveTrack(it, ordinal, language, label)
+            } ?: ordinal
+        }
+
+        private fun replay(announce: Boolean = false) {
+            val source = media[canonical(selectedUrl)] ?: return
+            if (probing) source.tracks?.let { deliver(it) }
+            if (ordinal >= 0) {
+                resolveSelection(source)
+                if (announce) announceSelection(source)
+                deliver(JSONObject().put("type", "cues").put("ordinal", ordinal)
+                    .put("cues", source.cues.snapshot(nativeOrdinal, positionMs)))
+            }
+        }
+
+        @Synchronized
+        fun handle(payload: JSONObject, callback: (String) -> Unit) {
+            emit = callback
+            session = payload.optLong("session", 0L)
+            when (payload.optString("type")) {
+                "subs-open" -> {
+                    selectedUrl = payload.optString("url")
+                    positionMs = payload.optLong("position", 0L).coerceAtLeast(0)
+                    ordinal = -1
+                    probing = payload.optBoolean("probe", false)
+                    replay()
+                }
+                "subs-select" -> {
+                    selectedUrl = payload.optString("url", selectedUrl)
+                    ordinal = payload.optInt("ordinal", -1)
+                    language = payload.optString("language")
+                    label = payload.optString("label")
+                    positionMs = payload.optLong("position", 0L).coerceAtLeast(0)
+                    probing = false
+                    Log.d(TAG, "shared video stream: selected subtitle $ordinal at $positionMs ms")
+                    replay(announce = true)
+                }
+                "subs-seek", "subs-time" -> {
+                    positionMs = payload.optLong("position", 0L).coerceAtLeast(0)
+                    replay()
+                }
+                "subs-stop" -> {
+                    ordinal = -1
+                    probing = false
+                    selectedUrl = ""
+                    emit = null
+                }
+            }
+        }
+
+        @Synchronized
         fun shutdown() {
-            current?.release()
-            current = null
+            media.clear()
+            redirects.clear()
+            pendingHeaders.clear()
+            selectedUrl = ""
+            ordinal = -1
+            probing = false
+            emit = null
         }
     }
 }

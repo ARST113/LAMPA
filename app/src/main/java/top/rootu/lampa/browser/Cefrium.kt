@@ -9,6 +9,7 @@ import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.widget.FrameLayout
 import com.cefrium.CefriumBrowser
+import com.cefrium.CefriumRequestHandler
 import org.json.JSONArray
 import org.json.JSONObject
 import top.rootu.lampa.BuildConfig
@@ -63,6 +64,22 @@ class Cefrium(
         cef.setOnRequestInterceptedListener { method, url, blocked ->
             Log.d(NET_TAG, "$method $url blocked=$blocked")
         }
+
+        // Parse subtitle blocks from exactly the bytes Chromium receives for playback.
+        cef.setRequestHandler(object : CefriumRequestHandler {
+            override fun onResourceRedirect(old: String?, new: String?) {
+                SubtitleExtractor.onRedirect(old, new)
+            }
+
+            override fun onResourceResponse(url: String?, status: Int) {
+                SubtitleExtractor.onResponse(url, status)
+            }
+
+            override fun onResponseData(url: String?, data: java.nio.ByteBuffer?) {
+                SubtitleExtractor.onData(url, data)
+            }
+        })
+        cef.setResponseTapEnabled(true)
 
         cef.setOnLoadingStateChangedListener { isLoading, _, _ ->
             mainActivity.runOnUiThread {
@@ -246,9 +263,9 @@ class Cefrium(
                 }
 
                 "subs-open", "subs-select", "subs-play", "subs-pause", "subs-seek", "subs-time", "subs-stop" -> {
-                    // The reader reports cues from its own worker thread, but the engine may only
+                    // Media response callbacks run off the UI thread, but the engine may only
                     // be driven from the UI thread, so every message is handed over first.
-                    SubtitleExtractor.handle(mainActivity, payload) { message ->
+                    SubtitleExtractor.handle(payload) { message ->
                         val script = JSONObject.quote(message)
                         mainActivity.runOnUiThread {
                             browser?.evaluateJavaScript("window.__lampaNativeSubs && window.__lampaNativeSubs.onNative($script);")

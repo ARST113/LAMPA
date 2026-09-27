@@ -1,82 +1,78 @@
-# Embedded MKV subtitles
+# Embedded subtitle repair
 
-This repair uses the existing Cefrium Chromium 152 AC3/EAC3 AAR. No Chromium
-rebuild or native library change is required. The Android application reads
-Matroska SubRip tracks and displays their text in Lampa's subtitle overlay.
+The app uses the existing Cefrium AC3/EAC3 AAR. The Chromium native library is
+unchanged. SubRip (`S_TEXT/UTF8`) is decoded in the Android wrapper and rendered
+in Lampa's existing subtitle overlay.
 
-## What was broken
+## Same data as video
 
-- EBML element IDs were read like sizes, stripping their identifying marker bit.
-- MKV SubRip blocks were treated as complete SRT files with timestamp lines.
-  Their payload is plain UTF-8 text; timestamps and durations belong to the
-  container. BlockGroup duration, negative relative time and TimestampScale
-  were consequently lost.
-- Lampa's tracks plugin creates non-configurable mode accessors. Replacing the
-  item within the retained subtitle array is necessary to attach a working
-  selector, including menus created internally by Lampa.
-- Track changes at time zero or while paused were suppressed by a clock gate.
-- The reader only started after a menu selection, but Chromium supplied no
-  SubRip tracks with which to create that menu. Metadata discovery now runs
-  when a video opens, and exposes the supported tracks through Lampa's own
-  subtitle selector. Discovery reads the playing video URL, not TorrServer's
-  separate preload response URL kept in the player metadata.
+Cefrium's response-body tap exposes the actual media bytes fetched by Chromium.
+`MkvSubtitleStream` incrementally reads EBML metadata and Matroska subtitle blocks
+from these callbacks, skipping video/audio payload without retaining it. It handles
+arbitrary packet boundaries, BlockGroup durations, TimestampScale, signed relative
+timestamps, lacing, unknown-size clusters, and recovery after HTTP seeks.
 
-The reader now validates framing, reads container timing, selects the requested
-language/label and skips media payload with HTTP Range. A subtitle-track Cues
-index allows direct seeking. If the index contains only video keyframes, earlier
-subtitle headers must still be scanned so a long active cue is not discarded.
-Initial latency therefore depends on the file's index and TorrServer response;
-instant selection cannot be guaranteed for every torrent.
+All supported subtitle tracks are collected while video buffers. A bounded text-only
+cache lets a language change replay the current cue immediately, including while
+paused. Seeking retains metadata and text already seen; new responses resume parsing
+at a validated cluster. There is no second subtitle HTTP download or Range scanner
+in the active playback path. Unbuffered seeking still depends on video buffering;
+this change does not promise zero network latency or recover text preceding the first
+cluster delivered by the video request.
 
-The affected TorrServer also intermittently returned zero-filled HTTP ranges
-with valid 206 headers. Illegal zero EBML starts are retried at the exact same
-offset up to three times. No bytes are skipped. This handles transient gaps,
-but persistent empty/corrupted responses still stop the reader with an error.
-Separate range scanning is not yet sufficient for reliable immediate subtitles
-on this stream; buffering subtitles with the media is the remaining work.
+Redirect aliases preserve the original player URL, including refreshed signed CDN
+links. Extensionless MKVs are recognized by a bounded four-byte EBML probe before
+JavaScript discovery. TorrServer's JSON preload/status responses are excluded.
+Parser metadata/text buffers and the per-source cue cache have explicit size limits.
 
-The page bridge cancels old readers and rejects stale session replies on seek,
-track change and stop. Native WebVTT and external URL subtitle loaders retain
-their original behavior. Text is rendered with textContent rather than HTML.
+## Other corrected defects
+
+The original reader stripped EBML ID marker bits and treated a subtitle block as a
+complete .srt file. Its later separate Range reader encountered zero-filled or
+inconsistent responses from the affected TorrServer. Continuous streaming succeeded,
+but duplicated media traffic. The active path now shares the video response instead.
+The old `MkvSubtitleReader` and its regression tests remain for historical diagnostics;
+`SubtitleExtractor` no longer instantiates it.
+
+The page bridge also handles Lampa plugin menus with non-configurable mode accessors,
+discovers track metadata before selection, supports paused/time-zero changes, and
+rejects stale session/source replies. Native WebVTT, HLS and external URL subtitle
+handlers retain their behavior. Subtitle text is assigned with `textContent`.
 
 ## Scope
 
-Supported embedded format: `S_TEXT/UTF8` (SubRip). ASS/SSA and bitmap PGS require
-additional decoders and are reported as unsupported. Servers ignoring Range
-use a sequential fallback, which can be slower. No server transcoding is needed.
+Supported embedded format: SubRip (`S_TEXT/UTF8`). ASS/SSA and bitmap PGS still need
+additional decoders. Unsupported codecs retain their metadata ordinal so menu mapping
+cannot shift to a different track. This is an app-wrapper repair, not a Chromium rebuild.
 
-A narrow style hides Chromium's duplicate overlay enclosure on Lampa's custom
-video element; it does not disable Remote Playback or Lampa's broadcast menu.
-The reported white Cast square matched that native control's geometry. It was
-absent on the affected remote stream after installing the repair; Lampa's HTML
-playback controls and subtitle selection menu remained usable.
+The narrow style hiding Chromium's duplicate overlay enclosure remains applied only
+to Lampa's custom video element. It preserves Lampa's playback and casting controls.
+System WebView/Cefrium isolation and its tested process restart remain unchanged;
+see `engine-switch-regression.md`.
 
-## Verification
+## Verification, Pixel 6, 2026-09-27
 
-- Fourteen JVM regression tests: EBML/timing, unknown-size clusters, track matching,
-  active long cues and indexed Range seeking, including video-only Cues and
-  metadata-only discovery, transient/persistent zero ranges, cancellation,
-  malformed data and truncated responses.
-- Eighteen JavaScript tests: real plugin descriptor shape, internal menus, native
-  and external subtitles, paused/zero-time changes, stale replies, automatic
-  metadata discovery, the TorrServer preload/play URL distinction, same-source
-  reload, replacement menus and preservation of HLS provider callbacks.
-- On the user's actual TorrServer movie, automatic discovery exposed all 19
-  SubRip tracks in the subtitle menu. Continuing to read cues revealed the
-  transient and persistent bad-range responses described above. On-device
-  retries did not establish continuous subtitle rendering; the real-stream
-  repair remains incomplete.
-- Pixel 6, repaired APK, real H.264 + AC3 MKV with two SubRip tracks: Russian
-  text rendered, paused switch to English, seek to the second cue, disable and
-  re-enable all passed, including after a WebView/Cefrium round trip. Native
-  `textTracks.length` remained zero, confirming the new reader supplied the text.
-- App assembled and JVM tests passed using the saved AC3 AAR. Its libcef.so was
-  unchanged. The original installed app and its data were retained.
+- 11 incremental-parser JVM tests, including every two-part split and one-byte feeds;
+  passed under a 32 MiB heap.
+- 5 text-cache tests and 5 source-routing tests, including redirects, signature splits
+  concurrent with discovery, extensionless URLs, duplicate ranges and bounded storage.
+- 18 JavaScript bridge tests; 14 retained legacy Range-reader regressions.
+- Gradle unit suite (35 tests) and `assembleLiteDebug` passed with the saved AC3 AAR.
+- The actual 15.21 GB TorrServer MKV exposed all 19 subtitle tracks. The same-stream
+  parser delivered thousands of cues continuously without the former Range failures.
+- On one paused real-movie frame, Russian -> English -> Russian changed the visible
+  text immediately. Disabling removed it; re-enabling restored it. A backward seek
+  from ~44 minutes to 28:40 resumed real Russian subtitle rendering on new media data.
+- The earlier empty screenshots alone were not evidence of an overlay defect. Visible
+  text, paused switching, and rendering with controls hidden were subsequently verified.
+- A repeated APK install left an old Chromium process and caused
+  `ChildProcessMismatchException`. A full force-stop before/after the final install
+  resolved this. Final on-device verification used a fresh main process (PID 5649).
 
-Run `node --test scripts/tests/subtitles.test.cjs` and
-`./gradlew :app:testLiteDebugUnitTest :app:assembleLiteDebug` with the pinned
-custom AAR arguments from the CI workflow.
+The original installed app and all settings were retained. The repaired debug APK uses
+`top.rootu.lampa.repair` / Lampa Repair because the original signing key is unavailable.
+No temporary JavaScript diagnostic polling hook is present in the delivered build.
 
-`-PdiagnosticPackage=true` gives debug builds the package `top.rootu.lampa.repair`
-and label Lampa Repair, allowing safe device testing when the installed APK's
-ephemeral CI signing key is unavailable. It does not alter release builds.
+Run `node --test --test-isolation=none scripts/tests/subtitles.test.cjs` and
+`./gradlew :app:testLiteDebugUnitTest :app:assembleLiteDebug` with the pinned custom AAR
+arguments. `-PdiagnosticPackage=true` enables the separate diagnostic package only.
