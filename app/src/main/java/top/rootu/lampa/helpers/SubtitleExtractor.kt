@@ -46,14 +46,19 @@ class SubtitleExtractor(
     @Volatile
     private var generation = 0
 
+    @Volatile
+    private var session = 0L
+
     /** Creates the reader for [url] and starts collecting track information. */
     fun open(url: String, startPositionMs: Long) {
         if (url.isEmpty()) return
+        stop()
         this.url = url
         playerPositionMs = startPositionMs.coerceAtLeast(0L)
-        // The page asks for a track right after it opens the stream, but a session that only
-        // reloads the media should still end up with subtitles, so the first track is the default.
-        restart(if (wantedOrdinal >= 0) wantedOrdinal else 0, "open")
+        wantedOrdinal = -1
+        wantedLanguage = ""
+        wantedLabel = ""
+        // Selection follows immediately. Starting here races two readers against one another.
     }
 
     /** Selects the subtitle track with the given zero based ordinal (order inside the file). */
@@ -72,6 +77,11 @@ class SubtitleExtractor(
 
     /** The reader may outrun the player, so it is told where playback currently is. */
     fun seek(positionMs: Long) {
+        updatePosition(positionMs)
+        if (wantedOrdinal >= 0) restart(wantedOrdinal, "seek")
+    }
+
+    fun updatePosition(positionMs: Long) {
         playerPositionMs = positionMs.coerceAtLeast(0L)
         reader?.playerPositionMs = playerPositionMs
     }
@@ -80,6 +90,7 @@ class SubtitleExtractor(
         generation++
         reader?.stop()
         reader = null
+        thread?.interrupt()
     }
 
     fun release() {
@@ -97,10 +108,13 @@ class SubtitleExtractor(
         thread?.interrupt()
 
         val target = url
-        val instance = MkvSubtitleReader(emit, wantedLanguage, wantedLabel) { Log.d(TAG, it) }
+        val requestSession = session
+        val instance = MkvSubtitleReader({ message ->
+            if (token == generation) emit(JSONObject(message).put("session", requestSession).toString())
+        }, wantedLanguage, wantedLabel) { Log.d(TAG, it) }
         instance.playerPositionMs = playerPositionMs
         reader = instance
-        Log.d(TAG, "$reason: reading subtitles of $target ordinal=$ordinal at $playerPositionMs ms")
+        Log.d(TAG, "$reason: reading subtitles ordinal=$ordinal at $playerPositionMs ms")
 
         val worker = Thread({
             instance.run(target, ordinal)
@@ -119,6 +133,10 @@ class SubtitleExtractor(
 
         /** Handles one request coming from the injected page bridge. */
         fun handle(context: Context, payload: JSONObject, emit: (String) -> Unit) {
+            if (payload.optString("type") in listOf("subs-open", "subs-select")) {
+                if (current == null) current = SubtitleExtractor(context, emit)
+            }
+            current?.session = payload.optLong("session", 0L)
             when (payload.optString("type")) {
                 "subs-open" -> {
                     val extractor = current ?: SubtitleExtractor(context, emit).also { current = it }
@@ -128,18 +146,20 @@ class SubtitleExtractor(
                     )
                 }
 
-                "subs-select" -> current?.select(
-                    payload.optInt("ordinal", 0),
-                    payload.optString("language", ""),
-                    payload.optString("label", ""),
-                    payload.optLong("position", 0L)
-                )
+                "subs-select" -> current?.let { extractor ->
+                    val source = payload.optString("url")
+                    if (source.isNotBlank() && extractor.url != source) extractor.open(source, payload.optLong("position", 0L))
+                    extractor.select(payload.optInt("ordinal", 0), payload.optString("language", ""),
+                        payload.optString("label", ""), payload.optLong("position", 0L))
+                }
 
                 "subs-play" -> current?.play()
 
                 "subs-pause" -> current?.pause()
 
                 "subs-seek" -> current?.seek(payload.optLong("position", 0L))
+
+                "subs-time" -> current?.updatePosition(payload.optLong("position", 0L))
 
                 "subs-stop" -> current?.stop()
             }

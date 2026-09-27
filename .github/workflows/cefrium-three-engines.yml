@@ -81,7 +81,8 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x ./gradlew
-          ./gradlew :app:assembleLiteDebug \
+          node --test scripts/tests/subtitles.test.cjs
+          ./gradlew :app:assembleLiteDebug :app:testLiteDebugUnitTest \
             -PcefriumAar="$CEF_AAR" \
             -PcefriumSha256="$CEF_SHA256" \
             --stacktrace

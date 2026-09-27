@@ -1529,8 +1529,11 @@ class MainActivity : BaseActivity(),
             setAdapter(adapter) { dialog, which ->
                 dialog.dismiss()
                 if (actions[which] != SELECTED_BROWSER) {
-                    appBrowser = actions[which]
-                    this@MainActivity.recreate()
+                    // Native JNI registrations survive Activity.recreate(). Persist the
+                    // choice before replacing the process so the two Chromium builds
+                    // never load into the same VM (JniZero multiplexing collision).
+                    val saved = appPrefs.edit().putString(Prefs.APP_BROWSER, actions[which]).commit()
+                    if (saved) EngineRestartActivity.restart(this@MainActivity)
                 }
             }
         }.create()

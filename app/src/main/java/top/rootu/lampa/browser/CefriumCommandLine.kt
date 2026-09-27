@@ -7,12 +7,10 @@ import org.chromium.base.CommandLine
  * Chromium command line switches that have to be installed *before* the Cefrium
  * runtime starts.
  *
- * com.cefrium.CefriumInitProvider is a ContentProvider of the Cefrium SDK, so the
- * framework creates it (and it calls the native CefInitialize, which freezes the
- * Chromium feature list) before Application.onCreate() of the host app runs.
- * Switches appended later - from MainActivity, for example - only mutate a command
- * line that nobody reads any more. Application.attachBaseContext() is the last hook
- * that still runs before the SDK provider, so the switches live here.
+ * The SDK's automatic ContentProvider is removed from our manifest. Install these
+ * switches from Application.onCreate(), immediately before initializing the
+ * selected Cefrium runtime. SDK lifecycle tracking must be registered before
+ * MainActivity starts. System WebView processes never execute this setup.
  */
 object CefriumCommandLine {
 
@@ -39,12 +37,21 @@ object CefriumCommandLine {
         "HttpsOnlyMode"
     )
 
-    /** Idempotent: safe to call from every process and every startup hook. */
+    /** Idempotent; call only in the main process when Cefrium is selected. */
     @JvmStatic
     fun apply() {
         try {
             if (!CommandLine.isInitialized()) CommandLine.init(null)
             val commandLine = CommandLine.getInstance()
+
+            commandLine.appendSwitchWithValue("javaless-renderers", "disabled")
+            commandLine.appendSwitch("allow-running-insecure-content")
+            val enabledBlinkFeatures = commandLine.getSwitchValue("enable-blink-features")
+                .orEmpty().split(',').map { it.trim() }.filter { it.isNotEmpty() }
+            commandLine.appendSwitchWithValue(
+                "enable-blink-features",
+                (enabledBlinkFeatures + "AudioVideoTracks").distinct().joinToString(",")
+            )
 
             // Never drop switches that are already there (Cefrium appends its own).
             val alreadyDisabled = commandLine.getSwitchValue("disable-features")

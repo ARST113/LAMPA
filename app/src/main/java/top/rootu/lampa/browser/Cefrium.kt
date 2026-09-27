@@ -9,7 +9,6 @@ import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.widget.FrameLayout
 import com.cefrium.CefriumBrowser
-import org.chromium.base.CommandLine
 import org.json.JSONArray
 import org.json.JSONObject
 import top.rootu.lampa.BuildConfig
@@ -42,37 +41,6 @@ class Cefrium(
 
     override fun initialize() {
         if (browser != null || isDestroyed) return
-
-        if (!CommandLine.isInitialized()) CommandLine.init(null)
-        val commandLine = CommandLine.getInstance()
-
-        commandLine.appendSwitchWithValue("javaless-renderers", "disabled")
-        commandLine.appendSwitchWithValue("enable-blink-features", "AudioVideoTracks")
-        commandLine.appendSwitch("allow-running-insecure-content")
-
-        // Chromium 152 upgrades every http:// navigation to https:// by itself
-        // (HttpsUpgrades / HttpsUpgradesInterceptor). Cefrium surfaces that synthetic
-        // redirect as "OnLoadEnd: status 307" and the upgraded request then fails
-        // (net_error -200 / -113) because LAMPA mirrors are plain-HTTP servers, or
-        // have no TLS endpoint for the requested host. Keep the user's scheme.
-        val disabledFeatures = listOf(
-            "HttpsUpgrades",
-            "HttpsFirstMode",
-            "HttpsFirstModeV2",
-            "HttpsFirstModeIncognito",
-            "HttpsFirstBalancedMode",
-            "HttpsFirstBalancedModeAutoEnable",
-            "HttpsOnlyMode"
-        ) + commandLine.getSwitchValue("disable-features")
-            .orEmpty()
-            .split(',')
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-
-        commandLine.appendSwitchWithValue(
-            "disable-features",
-            disabledFeatures.distinct().joinToString(",")
-        )
 
         val host = mainActivity.findViewById<FrameLayout>(viewResId)
         container = host
@@ -277,16 +245,13 @@ class Cefrium(
                     true
                 }
 
-                "subs-open", "subs-select", "subs-play", "subs-pause", "subs-seek", "subs-stop" -> {
+                "subs-open", "subs-select", "subs-play", "subs-pause", "subs-seek", "subs-time", "subs-stop" -> {
                     // The reader reports cues from its own worker thread, but the engine may only
                     // be driven from the UI thread, so every message is handed over first.
                     SubtitleExtractor.handle(mainActivity, payload) { message ->
                         val script = JSONObject.quote(message)
                         mainActivity.runOnUiThread {
-                            mainActivity.runVoidJsFunc(
-                                "window.__lampaNativeSubs && window.__lampaNativeSubs.onNative",
-                                script
-                            )
+                            browser?.evaluateJavaScript("window.__lampaNativeSubs && window.__lampaNativeSubs.onNative($script);")
                         }
                     }
                     callback.success("{}")
@@ -368,6 +333,7 @@ class Cefrium(
 
         val name = JSONObject.quote(jsObjectName)
         val version = JSONObject.quote(BuildConfig.VERSION_NAME + "-" + BuildConfig.VERSION_CODE)
+        val subtitleScript = mainActivity.assets.open("embedded-subtitles.js").bufferedReader().use { it.readText() }
         val script = """
             (function() {
                 var __name = $name;
@@ -471,227 +437,17 @@ class Cefrium(
                     });
                 } catch (e) {}
 
-                // ------------------------------------------------------------------
-                // Embedded subtitle bridge.
-                //
-                // The torrent MKVs carry `subrip` subtitle tracks. Chromium only builds
-                // HTMLVideoElement.textTracks for WebVTT (media/filters/ffmpeg_demuxer.cc:
-                // "codec_id != AV_CODEC_ID_WEBVTT -> continue"), so `video.textTracks` stays
-                // empty and the LAMPA plugins that switch subtitles by index (tracks.js,
-                // pidtor.js) silently do nothing. The native side reads the same stream with a
-                // headless ExoPlayer and streams parsed cues back here; they are painted into
-                // LAMPA's own subtitle overlay, which the browser does render.
-                // ------------------------------------------------------------------
-                if (!window.__lampaNativeSubsInstalled) {
-                    window.__lampaNativeSubsInstalled = true;
-                    var __nativeSubs = { item: null, cues: [], seen: {}, url: '', list: [], lastSeek: 0 };
-
-                    function __subsSendC(payload) {
-                        try {
-                            if (typeof window.cefriumQuery !== 'function') return;
-                            window.cefriumQuery({
-                                request: JSON.stringify(payload),
-                                onSuccess: function() {},
-                                onFailure: function() {}
-                            });
-                        } catch (e) {}
-                    }
-
-                    function __subsVideoEl() {
-                        try {
-                            if (window.Lampa && Lampa.PlayerVideo && Lampa.PlayerVideo.video) return Lampa.PlayerVideo.video();
-                        } catch (e) {}
-                        return null;
-                    }
-
-                    function __subsMediaUrl() {
-                        try {
-                            if (window.Lampa && Lampa.Player && Lampa.Player.playdata) {
-                                var data = Lampa.Player.playdata();
-                                if (data && typeof data.url === 'string' && data.url) return data.url;
-                            }
-                        } catch (e) {}
-                        var video = __subsVideoEl();
-                        return video && typeof video.src === 'string' ? video.src : '';
-                    }
-
-                    function __subsTextBox() {
-                        var box = document.querySelector('.player-video__subtitles');
-                        if (!box) return null;
-                        var inner = box.querySelector('div');
-                        if (!inner) return null;
-                        return { box: box, inner: inner };
-                    }
-
-                    function __subsPaint() {
-                        var target = __subsTextBox();
-                        if (!target) return;
-                        var video = __subsVideoEl();
-                        if (!__nativeSubs.item || !video) {
-                            target.inner.innerHTML = '&nbsp;';
-                            target.inner.style.display = 'none';
-                            return;
-                        }
-                        var time = video.currentTime * 1000;
-                        var text = '';
-                        var cues = __nativeSubs.cues;
-                        for (var i = 0; i < cues.length; i++) {
-                            if (cues[i][0] <= time && time < cues[i][1]) { text = cues[i][2]; break; }
-                        }
-                        target.box.classList.remove('hide');
-                        target.inner.innerHTML = text ? text : '&nbsp;';
-                        target.inner.style.display = text ? 'inline-block' : 'none';
-                    }
-
-                    function __subsBind() {
-                        var video = __subsVideoEl();
-                        if (!video || video.__lampaNativeSubsBound) return;
-                        video.__lampaNativeSubsBound = true;
-                        console.log('[LAMPA subs] video bound, textTracks=' + (video.textTracks ? video.textTracks.length : 'n/a') + ' audioTracks=' + (video.audioTracks ? video.audioTracks.length : 'n/a'));
-                        video.addEventListener('timeupdate', __subsPaint);
-                        video.addEventListener('seeked', __subsPaint);
-                        video.addEventListener('play', function() { __subsSendC({ type: 'subs-play' }); });
-                        video.addEventListener('pause', function() { __subsSendC({ type: 'subs-pause' }); });
-                        video.addEventListener('seeking', function() {
-                            if (__nativeSubs.item) {
-                                __subsSendC({ type: 'subs-seek', position: Math.max(0, Math.round(video.currentTime * 1000)) });
-                            }
-                        });
-                    }
-
-                    function __subsStart(item) {
-                        var ordinal = parseInt(item.index, 10);
-                        if (!(ordinal >= 0)) {
-                            console.warn('[LAMPA subs] item without a usable index: ' + JSON.stringify(item));
-                            return;
-                        }
-                        console.log('[LAMPA subs] start index=' + ordinal + ' lang=' + (item.language || '') + ' label=' + (item.label || item.title || ''));
-                        var video = __subsVideoEl();
-                        var url = __subsMediaUrl();
-                        if (!url || url.indexOf('blob:') === 0 || url.indexOf('data:') === 0) {
-                            console.warn('[LAMPA subs] unsupported source: ' + url);
-                            return;
-                        }
-                        if (__nativeSubs.item === item) return;
-                        if (url !== __nativeSubs.url) {
-                            __nativeSubs.url = url;
-                            __nativeSubs.ordinalSent = -1;
-                            __subsSendC({
-                                type: 'subs-open',
-                                url: url,
-                                position: video ? Math.max(0, Math.round(video.currentTime * 1000)) : 0
-                            });
-                            console.log('[LAMPA subs] open ' + url);
-                        }
-                        __nativeSubs.item = item;
-                        __nativeSubs.cues = [];
-                        __nativeSubs.seen = {};
-                        __nativeSubs.ordinalSent = ordinal;
-                        var position = video ? Math.max(0, Math.round(video.currentTime * 1000)) : 0;
-                        if (Math.abs(position - (__nativeSubs.lastSeek || 0)) > 1500) {
-                            __nativeSubs.lastSeek = position;
-                            __subsSendC({
-                                type: 'subs-select',
-                                ordinal: ordinal,
-                                language: item.language || '',
-                                label: item.label || item.title || '',
-                                position: position
-                            });
-                        }
-                        console.log('[LAMPA subs] select ordinal ' + ordinal + ' at ' + position + ' of ' + __nativeSubs.list.length + ' native tracks');
-                        __subsPaint();
-                    }
-
-                    function __subsStop() {
-                        console.log('[LAMPA subs] stop');
-                        __nativeSubs.item = null;
-                        __nativeSubs.cues = [];
-                        __subsSendC({ type: 'subs-stop' });
-                        __subsPaint();
-                    }
-
-                    window.__lampaNativeSubs = {
-                        onNative: function(raw) {
-                            var message = null;
-                            try { message = JSON.parse(raw); } catch (e) { return; }
-                            if (!message) return;
-                            if (message.type === 'cues') {
-                                if (__nativeSubs.item === null) return;
-                                if (message.ordinal !== parseInt(__nativeSubs.item.index, 10)) return;
-                                var incoming = message.cues || [];
-                                for (var i = 0; i < incoming.length; i++) {
-                                    var cue = incoming[i];
-                                    var start = cue[0] < 0 ? 0 : cue[0];
-                                    var end = (cue[1] < 0 || cue[1] <= start) ? start + 4000 : cue[1];
-                                    var key = start + ':' + end;
-                                    if (__nativeSubs.seen[key]) continue;
-                                    __nativeSubs.seen[key] = true;
-                                    __nativeSubs.cues.push([start, end, cue[2]]);
-                                }
-                                __subsPaint();
-                            } else if (message.type === 'tracks') {
-                                __nativeSubs.list = message.tracks || [];
-                                var names = [];
-                                for (var t = 0; t < __nativeSubs.list.length; t++) {
-                                    names.push(__nativeSubs.list[t].ordinal + ':' + __nativeSubs.list[t].mime + ':' + __nativeSubs.list[t].label);
-                                }
-                                console.log('[LAMPA subs] native tracks ' + __nativeSubs.list.length + ' [' + names.join(' | ') + ']');
-                            } else if (message.type === 'selected') {
-                                console.log('[LAMPA subs] native selected ' + message.ordinal + ' ' + message.mime);
-                            } else if (message.type === 'error') {
-                                console.warn('[LAMPA subs] ' + message.message);
-                            }
-                        },
-                        stop: __subsStop
-                    };
-
-                    function __subsWrapPanel() {
-                        try {
-                            var panel = window.Lampa && Lampa.PlayerPanel;
-                            if (!panel || panel.__lampaNativeSubsWrapped || typeof panel.setSubs !== 'function') return;
-                            var original = panel.setSubs;
-                            panel.setSubs = function(items) {
-                                var wrapped = items;
-                                try {
-                                    console.log('[LAMPA subs] panel items: ' + JSON.stringify(items));
-                                    wrapped = (items || []).map(function(source) {
-                                        if (!source || typeof source.index === 'undefined') return source;
-                                        var clone = {
-                                            index: source.index,
-                                            language: source.language,
-                                            label: source.label,
-                                            title: source.title,
-                                            ghost: source.ghost,
-                                            selected: source.selected === true
-                                        };
-                                        Object.defineProperty(clone, 'mode', {
-                                            configurable: true,
-                                            set: function(value) {
-                                                if (value === 'showing') {
-                                                    if (parseInt(clone.index, 10) >= 0) __subsStart(clone); else __subsStop();
-                                                } else if (__nativeSubs.item === clone) {
-                                                    __subsStop();
-                                                }
-                                            },
-                                            get: function() { return __nativeSubs.item === clone ? 'showing' : 'disabled'; }
-                                        });
-                                        return clone;
-                                    });
-                                } catch (e) {
-                                    wrapped = items;
-                                }
-                                return original.call(panel, wrapped);
-                            };
-                            panel.__lampaNativeSubsWrapped = true;
-                        } catch (e) {}
-                    }
-
-                    setInterval(function() {
-                        __subsWrapPanel();
-                        __subsBind();
-                        __subsPaint();
-                    }, 1000);
+                // Lampa draws its own playback controls. Blink's additional Cast overlay
+                // can appear as a white square above them; hide only that native overlay.
+                // Remote Playback and Lampa's own broadcast menu remain available.
+                if (!document.getElementById('lampa-native-overlay-style')) {
+                    var nativeOverlayStyle = document.createElement('style');
+                    nativeOverlayStyle.id = 'lampa-native-overlay-style';
+                    nativeOverlayStyle.textContent = 'video.player-video__video::-webkit-media-controls-overlay-enclosure { display: none !important; }';
+                    (document.head || document.documentElement).appendChild(nativeOverlayStyle);
                 }
+
+                $subtitleScript
 
                 var bridge = new Proxy({}, {
                     get: function(_, property) {

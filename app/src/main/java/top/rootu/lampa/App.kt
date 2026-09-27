@@ -19,6 +19,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import top.rootu.lampa.browser.CefriumCommandLine
 import top.rootu.lampa.helpers.Helpers.isConnected
+import top.rootu.lampa.helpers.Helpers.isWebViewAvailable
+import top.rootu.lampa.helpers.Prefs.appBrowser
 import top.rootu.lampa.helpers.Prefs.appLang
 import top.rootu.lampa.helpers.Updater
 import top.rootu.lampa.helpers.handleUncaughtException
@@ -32,19 +34,6 @@ class App : MultiDexApplication() {
     init {
         // use vectors on pre-LP devices
         AppCompatDelegate.setCompatVectorFromResourcesEnabled(true)
-    }
-
-    override fun attachBaseContext(base: Context) {
-        super.attachBaseContext(base)
-        // The Cefrium SDK initialises Chromium from its own ContentProvider, which the
-        // framework creates after attachBaseContext() but before onCreate(); anything
-        // appended to the Chromium command line later than that is ignored.
-        // Only the main/browser process is touched: Chromium services run in their own
-        // processes and receive their real command line from the framework, which an
-        // early empty init here would destroy.
-        if (Application.getProcessName() == base.packageName) {
-            CefriumCommandLine.apply()
-        }
     }
 
     companion object {
@@ -108,6 +97,8 @@ class App : MultiDexApplication() {
 
     override fun onCreate() {
         super.onCreate()
+        // The restart trampoline has no browser, preferences or background jobs.
+        if (Application.getProcessName() == "$packageName:engine_restart") return
         // Chromium/Cefrium runs web renderers in :sandboxed_processN services declared
         // with android:isolatedProcess="true". Android instantiates this Application in
         // those processes too, but an isolated process gets no credential protected
@@ -127,6 +118,20 @@ class App : MultiDexApplication() {
         // app crash handler
         handleUncaughtException(showLogs = true)
         //CrashHandler(this).initialize(showLogs = BuildConfig.DEBUG)
+
+        // SDK setup registers Chromium's ActivityLifecycleCallbacks. It must run
+        // before MainActivity starts, but only for the selected native engine.
+        // Starting it in MainActivity.onCreate() misses the Activity's creation
+        // callback and CefWindowAndroid rejects the resulting untracked Activity.
+        if (Application.getProcessName() == packageName) {
+            val useSystemWebView = appBrowser == "SysView" && isWebViewAvailable(this)
+            if (!useSystemWebView) {
+                CefriumCommandLine.apply()
+                check(com.cefrium.Cefrium.initialize(this)) {
+                    "Cannot initialize the selected Cefrium runtime"
+                }
+            }
+        }
 
         // Initialize components
         initializeComponents()

@@ -109,6 +109,14 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Opt-in package for on-device diagnostics when the installed APK's signing
+            // key belongs to an ephemeral CI runner. Never requires uninstalling Lampa.
+            if (project.hasProperty('diagnosticPackage')) {
+                applicationIdSuffix '.repair'
+                resValue 'string', 'app_name', 'Lampa Repair'
+            }
+        }
         release {
             signingConfig signingConfigs.release
             minifyEnabled false
@@ -152,6 +160,7 @@ android {
     }
     buildFeatures {
         buildConfig true
+        resValues true
         viewBinding true
     }
     sourceSets {
@@ -173,6 +182,7 @@ configurations.configureEach {
 }
 
 dependencies {
+    testImplementation 'org.json:json:20240303'
     if (customCefrium) {
         implementation files(customCefrium)
     } else {

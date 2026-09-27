@@ -31,7 +31,7 @@ object Prefs {
     private const val PLAYER_KEEP_CONN_KEY = "player_keep_connection"
     private const val KODI_PLAYLIST_ENABLED_KEY = "kodi_playlist_enabled"
     private const val LAMPA_SOURCE = "source"
-    private const val APP_BROWSER = "browser"
+    internal const val APP_BROWSER = "browser"
     private const val APP_LANG = "lang"
     private const val TMDB_API_KEY = "tmdb_api_url"
     private const val TMDB_IMG_KEY = "tmdb_image_url"

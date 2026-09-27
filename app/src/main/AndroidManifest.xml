@@ -85,6 +85,18 @@
         android:theme="@style/Theme.LAMPA"
         tools:ignore="RtlEnabled"
         tools:targetApi="n">
+        <!-- Each browser engine must initialize its own native runtime in a fresh
+             process. App initializes only the selected engine before Activity startup. -->
+        <provider
+            android:name="com.cefrium.CefriumInitProvider"
+            tools:node="remove" />
+        <activity
+            android:name=".EngineRestartActivity"
+            android:process=":engine_restart"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity="${applicationId}.engine_restart"
+            android:theme="@android:style/Theme.Material.NoActionBar" />
         <activity
             android:name=".CrashActivity"
             android:exported="false" />
