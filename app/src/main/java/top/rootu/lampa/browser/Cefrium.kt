@@ -479,7 +479,7 @@ class Cefrium(
                 // ------------------------------------------------------------------
                 if (!window.__lampaNativeSubsInstalled) {
                     window.__lampaNativeSubsInstalled = true;
-                    var __nativeSubs = { item: null, cues: [], seen: {}, url: '', list: [] };
+                    var __nativeSubs = { item: null, cues: [], seen: {}, url: '', list: [], lastSeek: 0 };
 
                     function __subsSendC(payload) {
                         try {
@@ -562,6 +562,7 @@ class Cefrium(
                             console.warn('[LAMPA subs] unsupported source: ' + url);
                             return;
                         }
+                        if (__nativeSubs.item === item) return;
                         if (url !== __nativeSubs.url) {
                             __nativeSubs.url = url;
                             __nativeSubs.ordinalSent = -1;
@@ -576,12 +577,16 @@ class Cefrium(
                         __nativeSubs.cues = [];
                         __nativeSubs.seen = {};
                         __nativeSubs.ordinalSent = ordinal;
-                        __subsSendC({
-                            type: 'subs-select',
-                            ordinal: ordinal,
-                            position: video ? Math.max(0, Math.round(video.currentTime * 1000) - 2000) : 0
-                        });
-                        console.log('[LAMPA subs] select ordinal ' + ordinal + ' of ' + __nativeSubs.list.length + ' native tracks');
+                        var position = video ? Math.max(0, Math.round(video.currentTime * 1000)) : 0;
+                        if (Math.abs(position - (__nativeSubs.lastSeek || 0)) > 1500) {
+                            __nativeSubs.lastSeek = position;
+                            __subsSendC({
+                                type: 'subs-select',
+                                ordinal: ordinal,
+                                position: position
+                            });
+                        }
+                        console.log('[LAMPA subs] select ordinal ' + ordinal + ' at ' + position + ' of ' + __nativeSubs.list.length + ' native tracks');
                         __subsPaint();
                     }
 

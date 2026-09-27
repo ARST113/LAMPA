@@ -44,6 +44,14 @@ class SubtitleExtractor(
     private var wantedOrdinal = -1
     private var wantedPositionMs = 0L
 
+    /** Position that was last handed to the player, used to ignore duplicate requests. */
+    private var positionAppliedMs = -1L
+
+    /** Fallback clock used when the bundled media3 copy hides the cue timings. */
+    private var lastCueEndMs = -1L
+
+    private var cueBatches = 0
+
     private val listener = object : Player.Listener {
         override fun onTracksChanged(tracks: Tracks) {
             val group = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_TEXT } ?: return
@@ -74,14 +82,27 @@ class SubtitleExtractor(
             if (selectedOrdinal < 0) return
             logTimeFields()
             val cues = JSONArray()
+            val playerPosition = player?.currentPosition ?: 0L
             for (cue in cueGroup.cues) {
                 val text = cue.text?.toString()?.trim().orEmpty()
                 if (text.isEmpty()) continue
-                val start = cueTimeMs(cue, "startTimeMs", "startTimeUs")
-                val end = cueTimeMs(cue, "endTimeMs", "endTimeUs")
+                var start = cueTimeMs(cue, "startTimeMs", "startTimeUs")
+                var end = cueTimeMs(cue, "endTimeMs", "endTimeUs")
+                if (start < 0) {
+                    // The bundled media3 copy hides the cue timings; fall back to the
+                    // player clock so the page still gets a usable schedule.
+                    start = if (lastCueEndMs in 0 until playerPosition) lastCueEndMs else playerPosition
+                    if (end < start) end = start + 4000L
+                }
+                if (end < start) end = start + 4000L
+                lastCueEndMs = end
                 cues.put(JSONArray().put(start).put(end).put(text))
             }
             if (cues.length() == 0) return
+            cueBatches++
+            if (cueBatches == 1 || cueBatches % 50 == 0) {
+                Log.d(TAG, "cues batch=$cueBatches count=${cues.length()} first=${cues.optJSONArray(0)}")
+            }
             emit(
                 JSONObject()
                     .put("type", "cues")
@@ -112,6 +133,7 @@ class SubtitleExtractor(
         if (url.isEmpty()) return
         release()
         wantedPositionMs = startPositionMs.coerceAtLeast(0L)
+        positionAppliedMs = -1L
 
         val rendererLooper = android.os.Looper.getMainLooper()
         val trackSelector = DefaultTrackSelector(context)
@@ -154,6 +176,7 @@ class SubtitleExtractor(
         val instance = player ?: return
         instance.seekTo(positionMs.coerceAtLeast(0L))
         wantedPositionMs = positionMs.coerceAtLeast(0L)
+        positionAppliedMs = wantedPositionMs
     }
 
     fun stop() {
@@ -176,6 +199,7 @@ class SubtitleExtractor(
         selectedOrdinal = -1
         wantedOrdinal = -1
         wantedPositionMs = 0L
+        positionAppliedMs = -1L
     }
 
     /**
@@ -200,7 +224,22 @@ class SubtitleExtractor(
             return
         }
 
+        // Selecting the text renderer makes the player rebuild its media periods and fire
+        // onTracksChanged again; re-applying the override and seeking from that callback
+        // loops forever (buffering -> tracks -> select -> seek -> buffering) and the reader
+        // never reaches the point where it emits cues. Only an ordinal change or a real jump
+        // in playback position may touch the player.
+        if (selectedOrdinal == ordinal) {
+            if (wantedPositionMs > 0 && kotlin.math.abs(positionAppliedMs - wantedPositionMs) > SEEK_EPSILON_MS) {
+                positionAppliedMs = wantedPositionMs
+                instance.seekTo(wantedPositionMs)
+            }
+            instance.playWhenReady = true
+            return
+        }
+
         selectedOrdinal = ordinal
+        positionAppliedMs = wantedPositionMs
 
         val parameters = instance.trackSelectionParameters
             .buildUpon()
@@ -240,6 +279,9 @@ class SubtitleExtractor(
 
     companion object {
         private const val TAG = "LampaSubtitles"
+
+        /** Position changes smaller than this are treated as the same request. */
+        private const val SEEK_EPSILON_MS = 1200L
 
         /**
          * The Cefrium SDK bundles its own copy of the media3 classes, and the version it
