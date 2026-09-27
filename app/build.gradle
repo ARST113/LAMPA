@@ -271,5 +271,10 @@ dependencies {
     implementation 'org.conscrypt:conscrypt-android:2.5.3' // for TLS v1.3 on API < 29
     //noinspection GradleDependency 1.8.1 fails on build with old gradle
     implementation 'org.mozilla:rhino:1.7.15' // JavaScript to run PAC file to get correct proxies
+
+    // Headless reader for the subtitle tracks embedded in torrent MKVs. Chromium never
+    // exposes `subrip` in-band tracks to HTMLVideoElement.textTracks, so ExoPlayer parses
+    // them for us and the cues are forwarded to the page. See helpers/SubtitleExtractor.kt.
+    implementation 'androidx.media3:media3-exoplayer:1.5.1'
     // crosswalk latest
 }
