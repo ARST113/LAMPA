@@ -9,7 +9,6 @@ import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.widget.FrameLayout
 import com.cefrium.CefriumBrowser
-import com.cefrium.CefriumDisplayHandler
 import org.chromium.base.CommandLine
 import org.json.JSONArray
 import org.json.JSONObject
@@ -89,19 +88,9 @@ class Cefrium(
             handleQuery(request, callback)
         }
 
-        // Diagnostics: Chromium's JS console and the request interceptor are the only
-        // window into the page on this engine (there is no chrome://inspect here).
-        // LAMPA logs player/subtitle/network failures through console.log/error only.
-        cef.setDisplayHandler(object : CefriumDisplayHandler() {
-            override fun onConsoleMessage(level: Int, message: String?, source: String?, line: Int) {
-                Log.d(CONSOLE_TAG, "[$level] $message ($source:$line)")
-            }
-
-            override fun onStatusMessage(value: String?) {
-                Log.d(CONSOLE_TAG, "status: $value")
-            }
-        })
-
+        // Diagnostics: there is no chrome://inspect on this engine and Cefrium does not
+        // forward Chromium's console to the app, so the page patches console.* below and
+        // ships the lines back through the existing cefriumQuery bridge.
         cef.setOnRequestInterceptedListener { method, url, blocked ->
             Log.d(NET_TAG, "$method $url blocked=$blocked")
         }
@@ -277,6 +266,15 @@ class Cefrium(
                     true
                 }
 
+                "console" -> {
+                    Log.d(
+                        CONSOLE_TAG,
+                        "[${payload.optString("level")}] ${payload.optString("message")}"
+                    )
+                    callback.success("{}")
+                    true
+                }
+
                 else -> {
                     callback.failure(404, "Unknown LAMPA native bridge request")
                     true
@@ -421,6 +419,39 @@ class Cefrium(
                         return true;
                     }
                 };
+
+                // Diagnostics: there is no remote inspector on this engine, so console
+                // output is shipped to logcat through the bridge (tag LampaConsole).
+                try {
+                    var __stringify = function(value) {
+                        if (typeof value === 'string') return value;
+                        try { return JSON.stringify(value); }
+                        catch (e) { return String(value); }
+                    };
+                    var __send = function(level, text) {
+                        try {
+                            if (text.length > 1500) text = text.slice(0, 1500) + '...';
+                            window.cefriumQuery({
+                                request: JSON.stringify({ type: 'console', level: level, message: text }),
+                                onSuccess: function() {},
+                                onFailure: function() {}
+                            });
+                        } catch (e) {}
+                    };
+                    ['log', 'info', 'warn', 'error', 'debug'].forEach(function(level) {
+                        var original = console[level];
+                        if (typeof original !== 'function') return;
+                        console[level] = function() {
+                            var parts = [];
+                            for (var i = 0; i < arguments.length; i++) parts.push(__stringify(arguments[i]));
+                            __send(level, parts.join(' '));
+                            return original.apply(console, arguments);
+                        };
+                    });
+                    window.addEventListener('error', function(e) {
+                        __send('uncaught', (e.message || '') + ' @ ' + (e.filename || '') + ':' + (e.lineno || 0));
+                    });
+                } catch (e) {}
 
                 var bridge = new Proxy({}, {
                     get: function(_, property) {
