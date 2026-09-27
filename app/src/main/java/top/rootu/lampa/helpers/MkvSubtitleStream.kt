@@ -9,7 +9,7 @@ import org.json.JSONObject
  * A response may start inside a block, so framing is recovered at a validated Cluster.
  */
 class MkvSubtitleStream(private val emit: (String) -> Unit, private val log: (String) -> Unit = {}) {
-    private data class Track(val number: Long, val ordinal: Int, val language: String, val label: String,
+    internal data class Track(val number: Long, val ordinal: Int, val language: String, val label: String,
                              val codec: String, val defaultNs: Long)
     private data class Header(val id: Long, val size: Long, val bytes: Int)
     private data class Vint(val value: Long, val bytes: Int)
@@ -19,6 +19,16 @@ class MkvSubtitleStream(private val emit: (String) -> Unit, private val log: (St
     private data class Pending(val header: Header, var remaining: Long = header.size, var block: Block? = null)
 
     private var tracks = emptyList<Track>()
+    private var tracksKnown = false
+    private var discoveredTracks = false
+    private var discoveredInfo = false
+    class Metadata internal constructor(internal val tracks: List<Track>, internal val scaleNs: Long)
+    // Only a response that actually read both masters may publish authoritative metadata.
+    fun metadata(): Metadata? = if (discoveredTracks && discoveredInfo) Metadata(tracks.toList(), scaleNs) else null
+    fun seedMetadata(metadata: Metadata) {
+        if (!discoveredTracks) { tracks = metadata.tracks.toList(); tracksKnown = true }
+        if (!discoveredInfo) scaleNs = metadata.scaleNs
+    }
     private var scaleNs = 1_000_000L
     private val input = Bytes()
     private val containers = ArrayList<Container>()
@@ -40,19 +50,22 @@ class MkvSubtitleStream(private val emit: (String) -> Unit, private val log: (St
         reportedRecovery = false
     }
 
-    fun feed(bytes: ByteArray) {
-        var offset = 0
-        while (offset < bytes.size) {
+    fun feed(bytes: ByteArray) = feed(bytes, 0, bytes.size)
+    fun feed(bytes: ByteArray, start: Int, length: Int) {
+        require(start >= 0 && length >= 0 && start <= bytes.size - length)
+        var offset = start
+        val limit = start + length
+        while (offset < limit) {
             drain()
             // Video bodies are discarded directly, without copying or scanning their bytes.
             if (skipRemaining > 0 && input.size == 0) {
-                val count = minOf(skipRemaining, (bytes.size - offset).toLong()).toInt()
+                val count = minOf(skipRemaining, (limit - offset).toLong()).toInt()
                 skipRemaining -= count
                 position += count
                 offset += count
                 continue
             }
-            val count = minOf(bytes.size - offset, 65536, MAX_BUFFER - input.size)
+            val count = minOf(limit - offset, 65536, MAX_BUFFER - input.size)
             if (count == 0) { recover(); consume(1); continue }
             input.append(bytes, offset, count)
             offset += count
@@ -238,7 +251,11 @@ class MkvSubtitleStream(private val emit: (String) -> Unit, private val log: (St
         when (id) {
             TIMESTAMP -> { val current = cluster(); require(current != null); current.time = uint(bytes) }
             DURATION -> { val current = containers.lastOrNull(); require(current?.id == GROUP); current!!.duration = uint(bytes) }
-            INFO -> elements(bytes) { child, data -> if (child.id == 0x2AD7B1L) { val scale = uint(data); require(scale > 0); scaleNs = scale } }
+            INFO -> {
+                var foundScale=1_000_000L
+                elements(bytes) { child, data -> if (child.id == 0x2AD7B1L) { val scale=uint(data);require(scale>0);foundScale=scale } }
+                scaleNs=foundScale;discoveredInfo=true
+            }
             TRACKS -> parseTracks(bytes)
         }
         return true
@@ -262,6 +279,8 @@ class MkvSubtitleStream(private val emit: (String) -> Unit, private val log: (St
             }
         }
         tracks = found
+        tracksKnown = true
+        discoveredTracks = true
         val rows = JSONArray()
         tracks.forEach { rows.put(JSONObject().put("ordinal", it.ordinal).put("track", it.number)
             .put("language", it.language).put("label", it.label.ifEmpty { it.language }).put("mime", it.codec)) }

@@ -32,7 +32,8 @@ internal class SubtitleProxyHttp(private val client: OkHttpClient,
             val row=line();if(row.isEmpty())break
             val colon=row.indexOf(':');require(colon>0)
             val name=row.substring(0,colon).lowercase(Locale.ROOT)
-            require(name.matches(Regex("[a-z0-9-]+")) && !headers.containsKey(name))
+            require(name.matches(Regex("[a-z0-9-]+"))) {"Invalid header name"}
+            require(!headers.containsKey(name)) {"Duplicate header: $name"}
             headers[name]=row.substring(colon+1).trim()
         }
         require(!headers.containsKey("transfer-encoding") && (headers["content-length"]?: "0")=="0")
@@ -79,6 +80,12 @@ internal class SubtitleProxyHttp(private val client: OkHttpClient,
                 continue
             }
             response.use { upstream ->
+                val lengths=upstream.headers("Content-Length")
+                val transfers=upstream.headers("Transfer-Encoding")
+                if(lengths.size>1 || transfers.size>1 ||
+                    lengths.any{!it.matches(Regex("[0-9]+")) || it.toLongOrNull()==null} ||
+                    transfers.any{!it.equals("chunked",true)} ||
+                    lengths.isNotEmpty() && transfers.isNotEmpty()) throw IOException("Ambiguous upstream framing")
                 var parsing=true
                 val offset=Regex("bytes (\\d+)-").find(upstream.header("Content-Range").orEmpty())?.groupValues?.get(1)?.toLongOrNull() ?: 0L
                 try {observer.begin(id,source.id,url.toString(),upstream.code(),offset)}catch(_:Exception){parsing=false}

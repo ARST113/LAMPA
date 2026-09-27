@@ -18,9 +18,10 @@
         var data = window.Lampa && Lampa.Player && Lampa.Player.playdata ? Lampa.Player.playdata() : null;
         var el = video();
         // Lampa keeps &preload in playdata, but assigns the actual &play URL to the video.
-        if (el && /^https?:\/\//i.test(el.currentSrc || '')) return el.currentSrc;
-        if (el && /^https?:\/\//i.test(el.src || '')) return el.src;
-        return data && typeof data.url === 'string' ? data.url : el && (el.currentSrc || el.src) || '';
+        var raw = el && /^https?:\/\//i.test(el.currentSrc || '') ? el.currentSrc :
+            el && /^https?:\/\//i.test(el.src || '') ? el.src :
+            data && typeof data.url === 'string' ? data.url : el && (el.currentSrc || el.src) || '';
+        return window.__lampaSubtitleProxy ? window.__lampaSubtitleProxy.originalUrl(raw) : raw;
     }
     function position() {
         var el = video();
@@ -209,11 +210,20 @@
                 // Option.setSubtitles exposes the button, and its existing onSelect sets mode.
                 if (items.length) Lampa.PlayerPanel.setSubs(items);
             } else if (message.type === 'cues' && state.item && Number(message.ordinal) === Number(state.item.index)) {
+                if (message.replace) { state.cues = []; state.seen = {}; }
                 (message.cues || []).forEach(function (cue) {
-                    if (!Number.isFinite(cue[0]) || !Number.isFinite(cue[1]) || cue[1] <= cue[0] || typeof cue[2] !== 'string') return;
+                    if (!Number.isFinite(cue[0]) || !Number.isFinite(cue[1]) || cue[1] <= cue[0] || typeof cue[2] !== 'string' || cue[2].length > 65536) return;
                     var key = JSON.stringify(cue);
                     if (!state.seen[key]) { state.seen[key] = true; state.cues.push(cue); }
                 });
+                var retained = [], chars = 0, at = position();
+                for (var i = state.cues.length - 1; i >= 0 && retained.length < 12000; i--) {
+                    var row = state.cues[i];
+                    if (row[1] <= at || row[0] > at + 120000 || chars + row[2].length > 2000000) continue;
+                    retained.push(row); chars += row[2].length;
+                }
+                state.cues = retained.reverse(); state.seen = {};
+                state.cues.forEach(function (cue) { state.seen[JSON.stringify(cue)] = true; });
                 paint();
             } else if (message.type === 'error') console.warn('[LAMPA subs] ' + message.message);
             else if (message.type === 'selected') console.log('[LAMPA subs] native track ' + message.ordinal + ' ' + message.mime);

@@ -7,13 +7,14 @@ import java.nio.ByteBuffer
 
 /** Collects embedded subtitle text from the browser's own media responses. No second HTTP reader. */
 class SubtitleExtractor {
-    companion object {
+    companion object : RelayObserver {
         private const val TAG = "LampaSubtitles"
 
         private class Media(var url: String) {
             val cues = SubtitleCueCache()
             var tracks: JSONObject? = null
-            val parser = MkvSubtitleStream({ raw ->
+            var metadata: MkvSubtitleStream.Metadata? = null
+            fun accept(raw: String) {
                 val message = JSONObject(raw)
                 when (message.optString("type")) {
                     "tracks" -> tracks = message
@@ -23,11 +24,12 @@ class SubtitleExtractor {
                     when (message.optString("type")) {
                         "tracks" -> { resolveSelection(this); if (probing) deliver(message) else announceSelection(this) }
                         "cues" -> if (ordinal >= 0 && message.optInt("ordinal", -1) == nativeOrdinal) {
-                            deliver(JSONObject(message.toString()).put("ordinal", ordinal))
+                            replay()
                         }
                     }
                 }
-            }) { Log.d(TAG, it) }
+            }
+            val parser = MkvSubtitleStream(::accept) { Log.d(TAG, it) }
         }
 
         // Two entries tolerate a late response from the previous film without losing the
@@ -44,6 +46,32 @@ class SubtitleExtractor {
         private var positionMs = 0L
         private var probing = false
         private var emit: ((String) -> Unit)? = null
+        private var relaySourceId = -1L
+        private var relayUrl = ""
+        private val responses = LinkedHashMap<Long, Pair<Media, SubtitleResponseSession>>()
+
+        @Synchronized fun registerSource(sourceId: Long, url: String) {
+            if (sourceId == relaySourceId && relayUrl == url) return
+            responses.values.forEach { it.second.close() }; responses.clear()
+            media.clear(); redirects.clear(); pendingHeaders.clear()
+            relaySourceId = sourceId; relayUrl = url
+            source(url)
+        }
+
+        @Synchronized override fun begin(responseId: Long, sourceId: Long, finalUrl: String, status: Int, startOffset: Long) {
+            if (sourceId != relaySourceId || status !in setOf(200, 206) || responses.size >= 4) return
+            val owner = source(relayUrl)
+            responses[responseId] = owner to SubtitleResponseSession(sourceId, responseId, owner.metadata, owner::accept)
+        }
+
+        @Synchronized override fun data(responseId: Long, bytes: ByteArray, count: Int) {
+            val (owner, reader) = responses[responseId] ?: return
+            owner.metadata?.let { reader.seedMetadata(it) }
+            reader.feed(bytes, count)
+            reader.metadata()?.let { owner.metadata = it }
+        }
+
+        @Synchronized override fun end(responseId: Long) { responses.remove(responseId)?.second?.close() }
 
         private fun canonical(url: String): String {
             var key = url
@@ -164,6 +192,7 @@ class SubtitleExtractor {
                 resolveSelection(source)
                 if (announce) announceSelection(source)
                 deliver(JSONObject().put("type", "cues").put("ordinal", ordinal)
+                    .put("replace", true)
                     .put("cues", source.cues.snapshot(nativeOrdinal, positionMs)))
             }
         }
@@ -205,6 +234,8 @@ class SubtitleExtractor {
 
         @Synchronized
         fun shutdown() {
+            responses.values.forEach { it.second.close() }; responses.clear()
+            relaySourceId = -1L; relayUrl = ""
             media.clear()
             redirects.clear()
             pendingHeaders.clear()

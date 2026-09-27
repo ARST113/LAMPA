@@ -282,7 +282,7 @@ dependencies {
     //noinspection GradleDependency 1.8.1 fails on build with old gradle
     implementation 'org.mozilla:rhino:1.7.15' // JavaScript to run PAC file to get correct proxies
 
-    // Embedded subtitles are read by helpers/MkvSubtitleReader.kt + helpers/SubtitleExtractor.kt,
+    // Embedded subtitles use SubtitleProxy + MkvSubtitleStream + SubtitleExtractor,
     // which parse the Matroska container directly. Chromium never exposes the `subrip` in-band
     // tracks to HTMLVideoElement.textTracks, and the media3 copy bundled inside the Cefrium AAR
     // did not deliver cue callbacks, so media3 is not needed here at all.

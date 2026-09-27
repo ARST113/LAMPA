@@ -6,9 +6,12 @@ in Lampa's existing subtitle overlay.
 
 ## Same data as video
 
-Cefrium's response-body tap exposes the actual media bytes fetched by Chromium.
-`MkvSubtitleStream` incrementally reads EBML metadata and Matroska subtitle blocks
-from these callbacks, skipping video/audio payload without retaining it. It handles
+Cefrium's response-body tap is disabled: its native filter can queue video faster
+than playback consumes it. A loopback HTTP relay forwards the actual media request
+using at most four synchronous workers, with a reusable 64 KiB block per response.
+It stops reading upstream while the browser stops consuming. `MkvSubtitleStream`
+incrementally reads EBML metadata and Matroska subtitle blocks before each block is
+forwarded, skipping video/audio payload without retaining it. It handles
 arbitrary packet boundaries, BlockGroup durations, TimestampScale, signed relative
 timestamps, lacing, unknown-size clusters, and recovery after HTTP seeks.
 
@@ -20,10 +23,11 @@ in the active playback path. Unbuffered seeking still depends on video buffering
 this change does not promise zero network latency or recover text preceding the first
 cluster delivered by the video request.
 
-Redirect aliases preserve the original player URL, including refreshed signed CDN
-links. Extensionless MKVs are recognized by a bounded four-byte EBML probe before
-JavaScript discovery. TorrServer's JSON preload/status responses are excluded.
-Parser metadata/text buffers and the per-source cue cache have explicit size limits.
+Each HTTP response owns independent framing state; only immutable track metadata
+and bounded text are shared within one film. Redirects preserve the player's logical
+source identity. TorrServer's JSON preload/status responses are excluded. Metadata,
+text caches and JavaScript cue windows have explicit bounds. UI delivery coalesces
+snapshots into one pending runnable, including during pauses and language changes.
 
 ## Other corrected defects
 
@@ -50,7 +54,11 @@ to Lampa's custom video element. It preserves Lampa's playback and casting contr
 System WebView/Cefrium isolation and its tested process restart remain unchanged;
 see `engine-switch-regression.md`.
 
-## Verification, Pixel 6, 2026-09-27
+## Historical subtitle correctness checks, Pixel 6, 2026-09-27
+
+These checks predate the relay. The released response-tap implementation subsequently
+showed unbounded native memory growth; it is not a stable fallback. Current relay
+acceptance and limits are recorded in `local-subtitle-proxy-verification.md`.
 
 - 11 incremental-parser JVM tests, including every two-part split and one-byte feeds;
   passed under a 32 MiB heap.

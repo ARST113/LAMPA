@@ -9,12 +9,18 @@ import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.widget.FrameLayout
 import com.cefrium.CefriumBrowser
-import com.cefrium.CefriumRequestHandler
 import org.json.JSONArray
 import org.json.JSONObject
 import top.rootu.lampa.BuildConfig
 import top.rootu.lampa.MainActivity
 import top.rootu.lampa.helpers.SubtitleExtractor
+import top.rootu.lampa.helpers.SubtitleProxy
+import top.rootu.lampa.helpers.SubtitleProxyOwner
+import top.rootu.lampa.helpers.SubtitleUiMailbox
+import okhttp3.HttpUrl
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -37,6 +43,23 @@ class Cefrium(
 
     private val evalId = AtomicLong(1)
     private val evalCallbacks = ConcurrentHashMap<Long, (String) -> Unit>()
+    private val proxyOwner = SubtitleProxyOwner({ SubtitleProxy(SubtitleExtractor) { Log.d("LampaRelay",it) } },
+        SubtitleExtractor::registerSource, SubtitleExtractor::shutdown)
+    private val proxyExecutor = ThreadPoolExecutor(1, 1, 30, TimeUnit.SECONDS, ArrayBlockingQueue(4))
+    private var subtitleDeliveryId=0L
+    private var subtitleAcknowledge:(()->Unit)?=null
+    private val subtitleMailbox = SubtitleUiMailbox({ task -> mainActivity.runOnUiThread { task() } }) { batch, ack ->
+        val id=++subtitleDeliveryId
+        subtitleAcknowledge=ack
+        val receipt=JSONObject().put("type","subs-delivered").put("id",id).toString()
+        browser?.evaluateJavaScript("""
+            (function(){try {
+                ${JSONArray(batch)}.forEach(function(message){if(window.__lampaNativeSubs)window.__lampaNativeSubs.onNative(message);});
+            } finally {
+                window.cefriumQuery({request:${JSONObject.quote(receipt)},onSuccess:function(){},onFailure:function(){}});
+            }})();
+        """.trimIndent())
+    }
 
     override var isDestroyed: Boolean = false
 
@@ -62,24 +85,11 @@ class Cefrium(
         // forward Chromium's console to the app, so the page patches console.* below and
         // ships the lines back through the existing cefriumQuery bridge.
         cef.setOnRequestInterceptedListener { method, url, blocked ->
-            Log.d(NET_TAG, "$method $url blocked=$blocked")
+            Log.d(NET_TAG, "request blocked=$blocked")
         }
 
-        // Parse subtitle blocks from exactly the bytes Chromium receives for playback.
-        cef.setRequestHandler(object : CefriumRequestHandler {
-            override fun onResourceRedirect(old: String?, new: String?) {
-                SubtitleExtractor.onRedirect(old, new)
-            }
-
-            override fun onResourceResponse(url: String?, status: Int) {
-                SubtitleExtractor.onResponse(url, status)
-            }
-
-            override fun onResponseData(url: String?, data: java.nio.ByteBuffer?) {
-                SubtitleExtractor.onData(url, data)
-            }
-        })
-        cef.setResponseTapEnabled(true)
+        // The native response filter has an unbounded output queue. Relay media in the APK.
+        cef.setResponseTapEnabled(false)
 
         cef.setOnLoadingStateChangedListener { isLoading, _, _ ->
             mainActivity.runOnUiThread {
@@ -186,7 +196,9 @@ class Cefrium(
         if (isDestroyed) return
         isDestroyed = true
 
-        SubtitleExtractor.shutdown()
+        subtitleDeliveryId++;subtitleAcknowledge=null;subtitleMailbox.close()
+        proxyOwner.close()
+        proxyExecutor.shutdownNow()
         evalCallbacks.clear()
         browser?.let { cef ->
             try {
@@ -232,6 +244,52 @@ class Cefrium(
         return try {
             val payload = JSONObject(request)
             when (payload.optString("type")) {
+                "proxy-page" -> {
+                    mainActivity.runOnUiThread {
+                        subtitleDeliveryId++;subtitleAcknowledge=null;subtitleMailbox.reset()
+                        proxyOwner.cancel()
+                    }
+                    callback.success("{}");true
+                }
+                "proxy-register" -> {
+                    val url = payload.getString("url")
+                    val parsed = HttpUrl.parse(url) ?: throw IllegalArgumentException("Invalid media source")
+                    require(parsed.queryParameterNames().containsAll(listOf("link", "play")) &&
+                        !parsed.queryParameterNames().any { it == "preload" || it == "stat" })
+                    val ticket = proxyOwner.request()
+                    mainActivity.runOnUiThread {
+                        val cef = browser
+                        val pageUrl = cef?.url.orEmpty()
+                        if (cef == null || isDestroyed) callback.failure(409, "Browser closed")
+                        else cef.getCookies(url) { cookies ->
+                            try { proxyExecutor.execute {
+                                try {
+                                    val headers = linkedMapOf("User-Agent" to userAgent)
+                                    val cookie = cookies.joinToString("; ") { it.name + "=" + it.value }
+                                    if (cookie.isNotEmpty()) headers["Cookie"] = cookie
+                                    val registration = proxyOwner.register(ticket, url, pageUrl, headers)
+                                    Log.d(TAG, "Proxy source ready: " + registration.sourceId)
+                                    callback.success(JSONObject().put("requestId", payload.getLong("requestId"))
+                                        .put("sourceId", registration.sourceId).put("originalUrl", registration.originalUrl)
+                                        .put("playbackUrl", registration.playbackUrl).toString())
+                                } catch (_: Exception) { callback.failure(502, "Cannot prepare video relay") }
+                            }} catch (_: java.util.concurrent.RejectedExecutionException) { callback.failure(503, "Relay busy") }
+                        }
+                    }
+                    true
+                }
+                "proxy-stop" -> {
+                    proxyOwner.cancel()
+                    callback.success("{}"); true
+                }
+                "subs-delivered" -> {
+                    mainActivity.runOnUiThread {
+                        if(payload.optLong("id",-1L)==subtitleDeliveryId) {
+                            val ack=subtitleAcknowledge;subtitleAcknowledge=null;ack?.invoke()
+                        }
+                    }
+                    callback.success("{}");true
+                }
                 "eval-result" -> {
                     val id = payload.optLong("id", -1L)
                     val result = payload.optString("result", "null")
@@ -256,7 +314,7 @@ class Cefrium(
                 "console" -> {
                     Log.d(
                         CONSOLE_TAG,
-                        "[${payload.optString("level")}] ${payload.optString("message")}"
+                        "[${payload.optString("level")}] ${payload.optString("message").replace(Regex("https?://[^\\s\"<>]+"), "[URL]")}"
                     )
                     callback.success("{}")
                     true
@@ -265,12 +323,8 @@ class Cefrium(
                 "subs-open", "subs-select", "subs-play", "subs-pause", "subs-seek", "subs-time", "subs-stop" -> {
                     // Media response callbacks run off the UI thread, but the engine may only
                     // be driven from the UI thread, so every message is handed over first.
-                    SubtitleExtractor.handle(payload) { message ->
-                        val script = JSONObject.quote(message)
-                        mainActivity.runOnUiThread {
-                            browser?.evaluateJavaScript("window.__lampaNativeSubs && window.__lampaNativeSubs.onNative($script);")
-                        }
-                    }
+                    if (payload.optString("type") in setOf("subs-open", "subs-select", "subs-seek", "subs-stop")) subtitleMailbox.clear()
+                    SubtitleExtractor.handle(payload, subtitleMailbox::offer)
                     callback.success("{}")
                     true
                 }
@@ -351,6 +405,7 @@ class Cefrium(
         val name = JSONObject.quote(jsObjectName)
         val version = JSONObject.quote(BuildConfig.VERSION_NAME + "-" + BuildConfig.VERSION_CODE)
         val subtitleScript = mainActivity.assets.open("embedded-subtitles.js").bufferedReader().use { it.readText() }
+        val proxyScript = mainActivity.assets.open("subtitle-proxy.js").bufferedReader().use { it.readText() }
         val script = """
             (function() {
                 var __name = $name;
@@ -464,6 +519,7 @@ class Cefrium(
                     (document.head || document.documentElement).appendChild(nativeOverlayStyle);
                 }
 
+                $proxyScript
                 $subtitleScript
 
                 var bridge = new Proxy({}, {

@@ -22,6 +22,7 @@ data class ProxyStats(val activeRequests: Int, val queuedRequests: Int, val byte
 internal class RelayConnection(val socket: Socket) : Closeable {
     @Volatile var sourceId = -1L
     @Volatile var responseStarted = false
+    @Volatile var headersComplete = false
     @Volatile private var closed = false
     @Volatile private var call: Call? = null
     @Synchronized fun attach(next: Call) {
@@ -36,17 +37,22 @@ internal class RelayConnection(val socket: Socket) : Closeable {
 }
 
 /** Finite number of synchronous streams; neither workers nor video bodies are queued. */
-class SubtitleProxy(private val observer: RelayObserver) : Closeable {
-    private val server = ServerSocket().apply { reuseAddress=true; bind(InetSocketAddress("127.0.0.1",0),4) }
-    private val ids = AtomicLong()
-    private val responseIds = AtomicLong()
+class SubtitleProxy(private val observer: RelayObserver, private val log:(String)->Unit = {}) : Closeable {
+    private val server = ServerSocket().apply { reuseAddress=true; soTimeout=100; bind(InetSocketAddress("127.0.0.1",0),4) }
+    private companion object {
+        // Extractor callbacks can outlive close(); IDs must never alias a newer proxy.
+        val ids = AtomicLong()
+        val responseIds = AtomicLong()
+    }
     private val random = SecureRandom()
     private val connections = ConcurrentHashMap<Long,RelayConnection>()
     private val slots = Semaphore(4)
     private val read = AtomicLong()
     private val written = AtomicLong()
     private val client = OkHttpClient.Builder().connectTimeout(15,TimeUnit.SECONDS)
-        .readTimeout(30,TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(false).build()
+        // GET/HEAD can recover a stale pooled connection before response headers.
+        // Body read failures still terminate the downstream response; never splice bytes.
+        .readTimeout(30,TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false).retryOnConnectionFailure(true).build()
     private val http = SubtitleProxyHttp(client, {read.addAndGet(it.toLong())}, {written.addAndGet(it.toLong())})
     private val workers = ThreadPoolExecutor(4,4,30,TimeUnit.SECONDS,SynchronousQueue(),
         ThreadFactory { r -> Thread(r,"LampaRelay").apply { isDaemon=true } })
@@ -79,7 +85,17 @@ class SubtitleProxy(private val observer: RelayObserver) : Closeable {
     }
     private fun accept() {
         while(!closed) {
-            val socket=try { server.accept() }catch(_:IOException){break}
+            // This endpoint serves Chromium's bodyless, non-pipelined requests. A peer
+            // FIN or extra request data cancels its response, even if upstream has stalled.
+            // Scan on every iteration, including sustained incoming connections.
+            connections.values.forEach {connection ->
+                if(connection.headersComplete) try {
+                    val extra=connection.socket.getInputStream().read()
+                    log("peer finished source=${connection.sourceId} extra=$extra")
+                    connection.close()
+                }catch(_:SocketTimeoutException){}catch(_:IOException){connection.close()}
+            }
+            val socket=try { server.accept() }catch(_:SocketTimeoutException){continue}catch(_:IOException){break}
             socket.soTimeout=15000;socket.sendBufferSize=65536;socket.tcpNoDelay=true
             if(!slots.tryAcquire()) { SubtitleProxyHttp.error(socket,503);continue }
             val id=responseIds.incrementAndGet()
@@ -88,16 +104,21 @@ class SubtitleProxy(private val observer: RelayObserver) : Closeable {
             try { workers.execute {
                 try {
                     val request=http.readRequest(socket)
+                    log("request=$id method=${request.method} range=${request.headers.containsKey("range")}")
+                    socket.soTimeout=1
+                    connection.headersComplete=true
                     val selected=synchronized(this) {
                         val selected=source
                         if(selected!=null && request.path==route) connection.sourceId=selected.id
                         if(selected!=null && request.path==route) selected else null
                     }
-                    if(selected==null) SubtitleProxyHttp.error(socket,404)
+                    if(selected==null) {log("request=$id expired route");SubtitleProxyHttp.error(socket,404)}
                     else http.serve(connection,request,selected,id,observer)
-                } catch (_:IllegalArgumentException) {
+                } catch (error:IllegalArgumentException) {
+                    log("request=$id invalid request")
                     if(!connection.responseStarted) SubtitleProxyHttp.error(socket,400)
-                } catch (_:Exception) {
+                } catch (error:Exception) {
+                    log("request=$id ${error.javaClass.simpleName} started=${connection.responseStarted}")
                     if(!connection.responseStarted) SubtitleProxyHttp.error(socket,502)
                 } finally {
                     runCatching {observer.end(id)}

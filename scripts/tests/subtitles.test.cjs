@@ -318,3 +318,22 @@ test('delivered text uses the playback clock and is never interpreted as markup'
   h.video.currentTime=12; h.events.timeupdate();
   assert.equal(h.text.textContent,'');
 });
+
+test('replacement snapshots discard old text and enforce cue and character limits', () => {
+  const h=harness(10);h.context.Lampa.PlayerPanel.setSubs([{index:0}]);h.menu()[0].mode='showing';
+  const send=cues=>h.context.__lampaNativeSubs.onNative(JSON.stringify({type:'cues',replace:true,ordinal:0,cues}));
+  send([[0,60000,'Old subtitle']]);send([[0,60000,'New subtitle']]);
+  assert.equal(h.text.textContent,'New subtitle');
+  send(Array.from({length:12005},(_,i)=>[0,60000,'cue-'+i]));
+  assert.ok(h.text.textContent.split('\n').length<=12000);
+  send(Array.from({length:4000},(_,i)=>[0,60000,'x'.repeat(600)+i]));
+  assert.ok(h.text.textContent.length<=2012000);
+});
+
+test('proxy source keeps original media identity in subtitle requests', () => {
+  const local='http://127.0.0.1:8899/token.mkv', original='http://torr.test/stream/a.mkv?link=fixture&play';
+  const h=harness(10,{currentSrc:local});
+  h.context.__lampaSubtitleProxy={originalUrl:url=>url===local?original:url};
+  h.context.Lampa.PlayerPanel.setSubs([{index:0}]);h.menu()[0].mode='showing';
+  assert.equal(h.requests.at(-1).url,original);
+});
