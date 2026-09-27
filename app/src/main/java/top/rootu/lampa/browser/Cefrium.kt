@@ -12,6 +12,7 @@ import com.cefrium.CefriumBrowser
 import org.chromium.base.CommandLine
 import org.json.JSONArray
 import org.json.JSONObject
+import top.rootu.lampa.BuildConfig
 import top.rootu.lampa.MainActivity
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
@@ -332,9 +333,12 @@ class Cefrium(
         if (jsObject == null) return
 
         val name = JSONObject.quote(jsObjectName)
+        val version = JSONObject.quote(BuildConfig.VERSION_NAME + "-" + BuildConfig.VERSION_CODE)
         val script = """
             (function() {
                 var __name = $name;
+                var __version = $version;
+                var __nativeResponses = {};
 
                 function __nativeCall(method, args) {
                     if (typeof window.cefriumQuery !== 'function') {
@@ -374,9 +378,38 @@ class Cefrium(
                     return value;
                 }
 
+                // Cefrium answers native queries asynchronously, so a JS expression can
+                // never receive a return value from the bridge: __nativeCall() returns null.
+                // LAMPA's app.js uses two of them synchronously - checkVersion() gates every
+                // native feature on AndroidJS.appVersion(), and Android.httpCall() pulls the
+                // HTTP body with AndroidJS.getResp(index) right after the native layer told
+                // it the request finished. Answering them locally keeps the whole native
+                // transport (online sources, parsers, torrents) alive; the body itself is
+                // pushed in by AndroidJS.httpReq just before Lampa.Android.httpCall() runs.
+                var __local = {
+                    appVersion: function() {
+                        return __version;
+                    },
+                    getResp: function(index) {
+                        var key = String(index);
+                        var value = __nativeResponses[key];
+                        delete __nativeResponses[key];
+                        return value === undefined ? '' : value;
+                    },
+                    __storeResp: function(index, body) {
+                        __nativeResponses[String(index)] = body;
+                        // let the native side drop its own copy of the body
+                        __nativeCall('getResp', [index]);
+                        return true;
+                    }
+                };
+
                 var bridge = new Proxy({}, {
                     get: function(_, property) {
                         if (typeof property === 'symbol') return undefined;
+                        if (Object.prototype.hasOwnProperty.call(__local, property)) {
+                            return __local[property];
+                        }
                         if (property === 'toString') {
                             return function() { return '[object ' + __name + ']'; };
                         }
