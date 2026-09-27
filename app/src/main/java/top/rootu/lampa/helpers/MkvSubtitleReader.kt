@@ -102,8 +102,10 @@ class MkvSubtitleReader(
         segmentSize = segment.size
 
         // SeekHead is the first element of a well formed segment and points at Tracks, so the
-        // usual path jumps straight there. Files without one get a bounded sequential scan.
+        // usual path jumps straight there. Files without one get a bounded sequential scan,
+        // which has to wait for the torrent to deliver however much media sits in between.
         val started = System.currentTimeMillis()
+        var seekHeadSeen = false
         while (!stopped) {
             if (System.currentTimeMillis() - started > TRACK_SCAN_TIMEOUT_MS) {
                 log("gave up looking for Tracks after ${TRACK_SCAN_TIMEOUT_MS / 1000}s")
@@ -111,8 +113,13 @@ class MkvSubtitleReader(
             }
             val element = readHeader(stream) ?: break
             when (element.id) {
-                ID_SEEK_HEAD -> parseSeekHead(stream, element.size)
+                ID_SEEK_HEAD -> {
+                    seekHeadSeen = true
+                    parseSeekHead(stream, element.size)
+                }
+
                 ID_TRACKS -> {
+                    if (!seekHeadSeen) log("found Tracks $position bytes in without a SeekHead")
                     parseTracks(stream, element.size)
                     return true
                 }
@@ -627,7 +634,7 @@ class MkvSubtitleReader(
             .readTimeout(30, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .build()
-        private const val TRACK_SCAN_TIMEOUT_MS = 45_000L
+        private const val TRACK_SCAN_TIMEOUT_MS = 90_000L
         private const val SCAN_TIMEOUT_MS = 30 * 60 * 1000L
         private const val MAX_ELEMENT_BYTES = 8 * 1024 * 1024
         private const val LOOKAHEAD_MS = 120_000L
