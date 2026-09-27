@@ -272,13 +272,9 @@ dependencies {
     //noinspection GradleDependency 1.8.1 fails on build with old gradle
     implementation 'org.mozilla:rhino:1.7.15' // JavaScript to run PAC file to get correct proxies
 
-    // Headless reader for the subtitle tracks embedded in torrent MKVs. Chromium never
-    // exposes `subrip` in-band tracks to HTMLVideoElement.textTracks, so ExoPlayer parses
-    // them for us and the cues are forwarded to the page. See helpers/SubtitleExtractor.kt.
-    // The Cefrium runtime AAR already bundles the complete Guava (1934 classes), so media3's
-    // own copy has to be excluded or Gradle's duplicate-class check aborts the build.
-    implementation('androidx.media3:media3-exoplayer:1.5.1') {
-        exclude group: 'com.google.guava'
-    }
+    // Embedded subtitles are read by helpers/MkvSubtitleReader.kt + helpers/SubtitleExtractor.kt,
+    // which parse the Matroska container directly. Chromium never exposes the `subrip` in-band
+    // tracks to HTMLVideoElement.textTracks, and the media3 copy bundled inside the Cefrium AAR
+    // did not deliver cue callbacks, so media3 is not needed here at all.
     // crosswalk latest
 }

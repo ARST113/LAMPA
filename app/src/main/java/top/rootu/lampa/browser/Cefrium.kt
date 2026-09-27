@@ -583,6 +583,8 @@ class Cefrium(
                             __subsSendC({
                                 type: 'subs-select',
                                 ordinal: ordinal,
+                                language: item.language || '',
+                                label: item.label || item.title || '',
                                 position: position
                             });
                         }
