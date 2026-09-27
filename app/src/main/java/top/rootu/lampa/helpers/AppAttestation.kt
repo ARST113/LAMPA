@@ -52,10 +52,6 @@ object AppAttestation {
     private var cachedCertSha256: String? = null
     private var certComputed = false
 
-    init {
-        if (BuildConfig.DEBUG) assertMatchers()
-    }
-
     fun clientId(): String =
         "lampa-android/${BuildConfig.VERSION_NAME}/${BuildConfig.VERSION_CODE}/${BuildConfig.FLAVOR}"
 
@@ -178,5 +174,14 @@ object AppAttestation {
         no("https://kinopoiskapiunofficial.tech/api/v2.1/films")
         no("http://127.0.0.1:8090/echo")
         no("https://jac.red/health")
+    }
+
+    // NOTE: must stay at the bottom of the object body. The matcher tables above are
+    // declared after the earlier members, and Kotlin runs static initializers in
+    // declaration order — an init block placed higher up would observe null tables
+    // and throw ExceptionInInitializerError, which permanently poisons the class
+    // (every later use fails with NoClassDefFoundError, breaking AndroidJS.httpReq).
+    init {
+        if (BuildConfig.DEBUG) assertMatchers()
     }
 }
