@@ -1,4 +1,4 @@
-package top.rootu.lampa.helpers
+﻿package top.rootu.lampa.helpers
 
 import android.content.Context
 import android.util.Log
@@ -25,7 +25,7 @@ import org.json.JSONObject
  *
  * ExoPlayer reads the very same stream itself, understands Matroska + SubRip, and reports parsed
  * cues through [Player.Listener.onCues]. Those cues are forwarded to the page, which paints them
- * into LAMPA's own subtitle overlay — a path Chromium fully supports.
+ * into LAMPA's own subtitle overlay вЂ” a path Chromium fully supports.
  */
 class SubtitleExtractor(
     private val context: Context,
@@ -72,8 +72,10 @@ class SubtitleExtractor(
             for (cue in cueGroup.cues) {
                 val text = cue.text?.toString()?.trim().orEmpty()
                 if (text.isEmpty()) continue
-                val start = if (cue.startTimeUs == C.TIME_UNSET) -1L else cue.startTimeUs / 1000L
-                val end = if (cue.endTimeUs == C.TIME_UNSET) -1L else cue.endTimeUs / 1000L
+                val rawStart = cue.startTimeMs
+                val rawEnd = cue.endTimeMs
+                val start = if (rawStart == C.TIME_UNSET) -1L else rawStart
+                val end = if (rawEnd == C.TIME_UNSET) -1L else rawEnd
                 cues.put(JSONArray().put(start).put(end).put(text))
             }
             if (cues.length() == 0) return
@@ -221,3 +223,4 @@ class SubtitleExtractor(
         }
     }
 }
+
