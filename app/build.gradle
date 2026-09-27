@@ -275,6 +275,10 @@ dependencies {
     // Headless reader for the subtitle tracks embedded in torrent MKVs. Chromium never
     // exposes `subrip` in-band tracks to HTMLVideoElement.textTracks, so ExoPlayer parses
     // them for us and the cues are forwarded to the page. See helpers/SubtitleExtractor.kt.
-    implementation 'androidx.media3:media3-exoplayer:1.5.1'
+    // The Cefrium runtime AAR already bundles the complete Guava (1934 classes), so media3's
+    // own copy has to be excluded or Gradle's duplicate-class check aborts the build.
+    implementation('androidx.media3:media3-exoplayer:1.5.1') {
+        exclude group: 'com.google.guava'
+    }
     // crosswalk latest
 }
