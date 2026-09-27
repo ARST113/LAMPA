@@ -14,6 +14,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import top.rootu.lampa.BuildConfig
 import top.rootu.lampa.MainActivity
+import top.rootu.lampa.helpers.SubtitleExtractor
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -200,6 +201,7 @@ class Cefrium(
         if (isDestroyed) return
         isDestroyed = true
 
+        SubtitleExtractor.shutdown()
         evalCallbacks.clear()
         browser?.let { cef ->
             try {
@@ -271,6 +273,17 @@ class Cefrium(
                         CONSOLE_TAG,
                         "[${payload.optString("level")}] ${payload.optString("message")}"
                     )
+                    callback.success("{}")
+                    true
+                }
+
+                "subs-open", "subs-select", "subs-play", "subs-pause", "subs-seek", "subs-stop" -> {
+                    SubtitleExtractor.handle(mainActivity, payload) { message ->
+                        mainActivity.runVoidJsFunc(
+                            "window.__lampaNativeSubs && window.__lampaNativeSubs.onNative",
+                            JSONObject.quote(message)
+                        )
+                    }
                     callback.success("{}")
                     true
                 }
@@ -452,6 +465,199 @@ class Cefrium(
                         __send('uncaught', (e.message || '') + ' @ ' + (e.filename || '') + ':' + (e.lineno || 0));
                     });
                 } catch (e) {}
+
+                // ------------------------------------------------------------------
+                // Embedded subtitle bridge.
+                //
+                // The torrent MKVs carry `subrip` subtitle tracks. Chromium only builds
+                // HTMLVideoElement.textTracks for WebVTT (media/filters/ffmpeg_demuxer.cc:
+                // "codec_id != AV_CODEC_ID_WEBVTT -> continue"), so `video.textTracks` stays
+                // empty and the LAMPA plugins that switch subtitles by index (tracks.js,
+                // pidtor.js) silently do nothing. The native side reads the same stream with a
+                // headless ExoPlayer and streams parsed cues back here; they are painted into
+                // LAMPA's own subtitle overlay, which the browser does render.
+                // ------------------------------------------------------------------
+                if (!window.__lampaNativeSubsInstalled) {
+                    window.__lampaNativeSubsInstalled = true;
+                    var __nativeSubs = { item: null, cues: [], seen: {}, url: '', list: [] };
+
+                    function __subsSendC(payload) {
+                        try {
+                            if (typeof window.cefriumQuery !== 'function') return;
+                            window.cefriumQuery({
+                                request: JSON.stringify(payload),
+                                onSuccess: function() {},
+                                onFailure: function() {}
+                            });
+                        } catch (e) {}
+                    }
+
+                    function __subsVideoEl() {
+                        try {
+                            if (window.Lampa && Lampa.PlayerVideo && Lampa.PlayerVideo.video) return Lampa.PlayerVideo.video();
+                        } catch (e) {}
+                        return null;
+                    }
+
+                    function __subsMediaUrl() {
+                        try {
+                            if (window.Lampa && Lampa.Player && Lampa.Player.playdata) {
+                                var data = Lampa.Player.playdata();
+                                if (data && typeof data.url === 'string' && data.url) return data.url;
+                            }
+                        } catch (e) {}
+                        var video = __subsVideoEl();
+                        return video && typeof video.src === 'string' ? video.src : '';
+                    }
+
+                    function __subsTextBox() {
+                        var box = document.querySelector('.player-video__subtitles');
+                        if (!box) return null;
+                        var inner = box.querySelector('div');
+                        if (!inner) return null;
+                        return { box: box, inner: inner };
+                    }
+
+                    function __subsPaint() {
+                        var target = __subsTextBox();
+                        if (!target) return;
+                        var video = __subsVideoEl();
+                        if (!__nativeSubs.item || !video) {
+                            target.inner.innerHTML = '&nbsp;';
+                            target.inner.style.display = 'none';
+                            return;
+                        }
+                        var time = video.currentTime * 1000;
+                        var text = '';
+                        var cues = __nativeSubs.cues;
+                        for (var i = 0; i < cues.length; i++) {
+                            if (cues[i][0] <= time && time < cues[i][1]) { text = cues[i][2]; break; }
+                        }
+                        target.box.classList.remove('hide');
+                        target.inner.innerHTML = text ? text : '&nbsp;';
+                        target.inner.style.display = text ? 'inline-block' : 'none';
+                    }
+
+                    function __subsBind() {
+                        var video = __subsVideoEl();
+                        if (!video || video.__lampaNativeSubsBound) return;
+                        video.__lampaNativeSubsBound = true;
+                        video.addEventListener('timeupdate', __subsPaint);
+                        video.addEventListener('seeked', __subsPaint);
+                        video.addEventListener('play', function() { __subsSendC({ type: 'subs-play' }); });
+                        video.addEventListener('pause', function() { __subsSendC({ type: 'subs-pause' }); });
+                        video.addEventListener('seeking', function() {
+                            if (__nativeSubs.item) {
+                                __subsSendC({ type: 'subs-seek', position: Math.max(0, Math.round(video.currentTime * 1000)) });
+                            }
+                        });
+                    }
+
+                    function __subsStart(item) {
+                        var ordinal = parseInt(item.index, 10);
+                        if (!(ordinal >= 0)) return;
+                        var video = __subsVideoEl();
+                        var url = __subsMediaUrl();
+                        if (!url || url.indexOf('blob:') === 0 || url.indexOf('data:') === 0) {
+                            console.warn('[LAMPA subs] unsupported source: ' + url);
+                            return;
+                        }
+                        if (url !== __nativeSubs.url) {
+                            __nativeSubs.url = url;
+                            __subsSendC({ type: 'subs-open', url: url });
+                        }
+                        __nativeSubs.item = item;
+                        __nativeSubs.cues = [];
+                        __nativeSubs.seen = {};
+                        __subsSendC({
+                            type: 'subs-select',
+                            ordinal: ordinal,
+                            position: video ? Math.max(0, Math.round(video.currentTime * 1000) - 2000) : 0
+                        });
+                        __subsPaint();
+                    }
+
+                    function __subsStop() {
+                        __nativeSubs.item = null;
+                        __nativeSubs.cues = [];
+                        __subsSendC({ type: 'subs-stop' });
+                        __subsPaint();
+                    }
+
+                    window.__lampaNativeSubs = {
+                        onNative: function(raw) {
+                            var message = null;
+                            try { message = JSON.parse(raw); } catch (e) { return; }
+                            if (!message) return;
+                            if (message.type === 'cues') {
+                                if (__nativeSubs.item === null) return;
+                                if (message.ordinal !== parseInt(__nativeSubs.item.index, 10)) return;
+                                var incoming = message.cues || [];
+                                for (var i = 0; i < incoming.length; i++) {
+                                    var cue = incoming[i];
+                                    var start = cue[0] < 0 ? 0 : cue[0];
+                                    var end = (cue[1] < 0 || cue[1] <= start) ? start + 4000 : cue[1];
+                                    var key = start + ':' + end;
+                                    if (__nativeSubs.seen[key]) continue;
+                                    __nativeSubs.seen[key] = true;
+                                    __nativeSubs.cues.push([start, end, cue[2]]);
+                                }
+                                __subsPaint();
+                            } else if (message.type === 'tracks') {
+                                __nativeSubs.list = message.tracks || [];
+                            } else if (message.type === 'error') {
+                                console.warn('[LAMPA subs] ' + message.message);
+                            }
+                        },
+                        stop: __subsStop
+                    };
+
+                    function __subsWrapPanel() {
+                        try {
+                            var panel = window.Lampa && Lampa.PlayerPanel;
+                            if (!panel || panel.__lampaNativeSubsWrapped || typeof panel.setSubs !== 'function') return;
+                            var original = panel.setSubs;
+                            panel.setSubs = function(items) {
+                                var wrapped = items;
+                                try {
+                                    wrapped = (items || []).map(function(source) {
+                                        if (!source || typeof source.index === 'undefined') return source;
+                                        var clone = {
+                                            index: source.index,
+                                            language: source.language,
+                                            label: source.label,
+                                            title: source.title,
+                                            ghost: source.ghost,
+                                            selected: source.selected === true
+                                        };
+                                        Object.defineProperty(clone, 'mode', {
+                                            configurable: true,
+                                            set: function(value) {
+                                                if (value === 'showing') {
+                                                    if (parseInt(clone.index, 10) >= 0) __subsStart(clone); else __subsStop();
+                                                } else if (__nativeSubs.item === clone) {
+                                                    __subsStop();
+                                                }
+                                            },
+                                            get: function() { return __nativeSubs.item === clone ? 'showing' : 'disabled'; }
+                                        });
+                                        return clone;
+                                    });
+                                } catch (e) {
+                                    wrapped = items;
+                                }
+                                return original.call(panel, wrapped);
+                            };
+                            panel.__lampaNativeSubsWrapped = true;
+                        } catch (e) {}
+                    }
+
+                    setInterval(function() {
+                        __subsWrapPanel();
+                        __subsBind();
+                        __subsPaint();
+                    }, 1000);
+                }
 
                 var bridge = new Proxy({}, {
                     get: function(_, property) {
