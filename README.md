@@ -21,5 +21,5 @@ System requirements: Android 4.1+ (API level 16+)
 </p>
 
 ### Last release links:
-- [Release page](https://github.com/lampa-app/LAMPA/releases/latest)
-- [Direct apk download link](https://github.com/lampa-app/LAMPA/releases/latest/download/app-lite-release.apk)
+- [Release page](https://github.com/ARST113/LAMPA/releases)
+- [Direct apk download link](https://github.com/ARST113/LAMPA/releases/download/lampa-repair-2026.09.28-proxy/Lampa-Repair-Subtitles-Proxy-arm64.apk)
