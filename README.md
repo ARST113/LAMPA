@@ -10,7 +10,7 @@
 
 <p align="center">
   <!-- Прямая ссылка на скачивание APK -->
-  <a href="https://github.com/ARST113/LAMPA/releases/download/lampa-repair-2026.09.28-proxy/Lampa-Repair-Subtitles-Proxy-arm64.apk">
+  <a href="https://github.com/ARST113/LAMPA/releases/download/lampa-aec3-2026.09.28/app-lite-release.apk">
     <img src="https://img.shields.io/badge/Скачать-APK_ARM64-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Скачать APK">
   </a>
   <!-- Ссылка на страницу всех релизов -->
