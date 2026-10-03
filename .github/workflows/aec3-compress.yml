@@ -1,0 +1,58 @@
+name: Compress pinned AEC3 APK
+
+on:
+  push:
+    branches: [optimize/aec3-lossless]
+    paths: [tools/repack_aec3.py, tools/sign_aec3.py, .github/workflows/aec3-compress.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compress:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      HAS_PROJECT_KEY: ${{ secrets.KEYSTORE_GIT_REPOSITORY != '' && secrets.KEYSTORE_ACCESS_TOKEN != '' }}
+      KEYSTORE_FILE: ${{ secrets.KEYSTORE_FILE }}
+      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      RELEASE_SIGN_KEY_ALIAS: ${{ secrets.RELEASE_SIGN_KEY_ALIAS }}
+      RELEASE_SIGN_KEY_PASSWORD: ${{ secrets.RELEASE_SIGN_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android signing tools
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "build-tools;36.0.0"'
+      - name: Retrieve project key inside runner
+        if: env.HAS_PROJECT_KEY == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.KEYSTORE_GIT_REPOSITORY }}
+          token: ${{ secrets.KEYSTORE_ACCESS_TOKEN }}
+          path: app/keystore
+      - name: Download exact original APK
+        run: |
+          curl --fail --location --retry 4 --retry-all-errors https://github.com/ARST113/LAMPA/releases/download/lampa-aec3-2026.09.28/app-lite-release.apk -o source.apk
+          echo 'dc1e3e3ea8f7ac6c92e520e604c9f74cf31fdd91fd63143a14c346a6a5a0b711  source.apk' | sha256sum --check -
+      - name: Repack with byte-for-byte payload validation
+        run: |
+          mkdir -p artifacts
+          if [ "$HAS_PROJECT_KEY" = true ]; then
+            python3 tools/repack_aec3.py source.apk compressed-unsigned.apk --report artifacts/payload-report.json
+          else
+            python3 tools/repack_aec3.py source.apk compressed-unsigned.apk --test-package --report artifacts/payload-report.json
+          fi
+      - name: Sign and verify certificate and alignment
+        run: python3 tools/sign_aec3.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AEC3-compressed-${{ github.run_number }}
+          path: artifacts/
+          compression-level: 0
+          retention-days: 30
+          if-no-files-found: error
+

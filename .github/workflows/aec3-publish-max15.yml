@@ -1,0 +1,56 @@
+name: Publish verified AEC3 MAX15 test artifact
+on:
+  push:
+    branches: [optimize/aec3-lossless]
+    paths: [.github/workflows/aec3-publish-max15.yml]
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: AEC3-MAX15-1
+          path: artifacts
+          github-token: ${{ github.token }}
+          run-id: 37159466203
+      - name: Check the exact signed GitHub artifact
+        run: |
+          cd artifacts
+          echo 'cbd24b0f28de37943b0ab59d670ce4d6712bcba7261a20f990b793069bae53d0  Lampa-AEC3-MAX15-TEST.apk' | sha256sum --check -
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          r = json.loads(Path('signature-report.json').read_text())
+          assert r['bytes'] == 131750785
+          assert r['package'] == 'top.rootu.lampa.cm15'
+          assert r['certificate_sha256'] == '7bdacc11a573a81271cbc0c2d0b1b17663e3aff9171ede1b8bd30955c58c5c88'
+          assert r['compatible_update'] is False
+          assert 'Verified using v3 scheme (APK Signature Scheme v3): true' in r['apk_signature_verification']
+          p = json.loads(Path('payload-report.json').read_text())
+          assert p['source_sha256'] == 'dc1e3e3ea8f7ac6c92e520e604c9f74cf31fdd91fd63143a14c346a6a5a0b711'
+          PY
+      - name: Publish separate test package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'NOTES'
+          APK уменьшен с 315 756 253 до 131 750 785 байт (на 58,28%) с помощью Zopfli15. DEX, Chromium 152, нативные библиотеки AC3/EAC3, ICU и PAK сохранены побайтово. Для сжатых библиотек включено штатное извлечение Android.
+
+          Это отдельная тестовая установка `top.rootu.lampa.cm15` с именем AEC3.MAX15 и новой тестовой подписью. Она устанавливается рядом с исходной AEC3 и не является обновлением исходного приложения. Свою ссылку и профиль пользователь вводит самостоятельно; профили, личные адреса и ключи подписи не включены.
+
+          Версия 1.13.1 (568), ARM64, Android 10+. Подпись APK v3 проверена. На локальной сборке с теми же исполняемыми файлами проверены первый запуск, Chromium и полное воспроизведение собственных 12-секундных AC3/EAC3 роликов. Повторная проверка APK, скачанного из этого релиза, будет добавлена после проверки на устройстве.
+
+          SHA256 APK: `cbd24b0f28de37943b0ab59d670ce4d6712bcba7261a20f990b793069bae53d0`
+
+          SHA256 сертификата: `7bdacc11a573a81271cbc0c2d0b1b17663e3aff9171ede1b8bd30955c58c5c88`
+
+          Сборка: https://github.com/ARST113/LAMPA/actions/runs/37159466203
+          NOTES
+          gh release create aec3-max15-test-2026.10.04 --target f2b486c735d93db7cdd4c3818c62cf707eccf382 --prerelease --title 'AEC3.MAX15 — 131,75 МБ, отдельная тестовая установка' --notes-file notes.md artifacts/Lampa-AEC3-MAX15-TEST.apk artifacts/SHA256SUMS.txt artifacts/signature-report.json
+

@@ -1,0 +1,31 @@
+{
+  "release": "https://github.com/ARST113/LAMPA/releases/tag/aec3-max15-test-2026.10.04",
+  "download": "https://github.com/ARST113/LAMPA/releases/download/aec3-max15-test-2026.10.04/Lampa-AEC3-MAX15-TEST.apk",
+  "original_bytes": 315756253,
+  "apk_bytes": 131750785,
+  "sha256": "cbd24b0f28de37943b0ab59d670ce4d6712bcba7261a20f990b793069bae53d0",
+  "certificate_sha256": "7bdacc11a573a81271cbc0c2d0b1b17663e3aff9171ede1b8bd30955c58c5c88",
+  "package": "top.rootu.lampa.cm15",
+  "compatible_update_for_original_aec3": false,
+  "public_download_sha256_matches_release": true,
+  "apk_v3_signature_valid": true,
+  "zip_crc_valid": true,
+  "identical_original_dex_native_icu_pak_files": 20,
+  "private_server_identifiers_in_source_apk": 0,
+  "tested_apk_is_public_github_download": true,
+  "fresh_install_native_onboarding": "passed",
+  "first_chromium_page": "passed",
+  "chromium_version": 152,
+  "codec_tests": [
+    {"codec": "AC3", "container": "MP4", "duration_seconds": 12, "ended_seconds": 12, "decoded_video_frames": 292, "decoded_audio_bytes": 196096, "html_media_error": 0},
+    {"codec": "EAC3", "container": "MP4", "duration_seconds": 12, "ended_seconds": 12, "decoded_video_frames": 292, "decoded_audio_bytes": 196096, "html_media_error": 0}
+  ],
+  "test_profile": "own localhost page with generated audio and video",
+  "original_apps_and_profiles_preserved": true,
+  "limitations": [
+    "Runtime smoke was performed on one ARM64 Android 17 device.",
+    "The original release signing key was unavailable; this artifact uses a separate test package and certificate.",
+    "Native libraries are extracted by Android, so the download size reduction does not imply the same reduction of installed storage."
+  ]
+}
+
