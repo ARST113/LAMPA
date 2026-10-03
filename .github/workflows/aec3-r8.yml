@@ -46,7 +46,14 @@ jobs:
           r = {'missing_class_count': len(classes), 'missing_library_classes': classes[:200],
                'out_of_memory': 'OutOfMemoryError' in text or 'Java heap space' in text,
                'duplicate_classes': 'Duplicate class' in text,
-               'unsupported_rule': 'Unknown option' in text or 'Unsupported option' in text}
+               'unsupported_rule': 'Unknown option' in text or 'Unsupported option' in text,
+               'daemon_disappeared': 'daemon disappeared' in text.lower(),
+               'process_killed': 'Killed' in text or 'exit code 137' in text,
+               'internal_r8_error': 'Internal error' in text or 'InternalError' in text,
+               'assertion_error': 'AssertionError' in text,
+               'resource_shrinker_error': 'shrinkLiteReleaseRes' in text or 'shrinkReleaseRes' in text,
+               'exception_classes': sorted(set(re.findall(r'((?:java|org.gradle|com.android.tools.r8|org.jetbrains)[A-Za-z0-9_.$]*(?:Exception|Error))', text)))[:30],
+               'failure_tasks': sorted(set(re.findall(r'Execution failed for task [\x27\x22](:app:[A-Za-z0-9_]+)', text)))[:10]}
           Path('artifacts/failure-summary.json').write_text(json.dumps(r, indent=2))
           print(json.dumps(r, indent=2))
           PY
