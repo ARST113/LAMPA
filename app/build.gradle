@@ -75,12 +75,12 @@ android {
     //noinspection GradleDependency
     compileSdk 36
     defaultConfig {
-        applicationId "top.rootu.lampa"
+        applicationId "top.rootu.lampa.cr8t"
         minSdkVersion 29
         //noinspection ExpiredTargetSdkVersion
         targetSdkVersion 29
-        versionCode getVersionCode()
-        versionName getVersionName()
+        versionCode 569
+        versionName "1.13.1-AEC3-R8-TEST"
         buildConfigField "String", "REPO_ID", "\"${getRepoId()}\""
         multiDexEnabled = true // required when setting minSdkVersion to 20 or lower
         // Use SupportLibrary for vectors
@@ -110,8 +110,9 @@ android {
 
     buildTypes {
         release {
-            signingConfig signingConfigs.release
-            minifyEnabled false
+            // Signed with a separate test key after payload verification.
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
@@ -132,7 +133,7 @@ android {
 
     productFlavors {
         lite {
-            buildConfigField "boolean", "enableUpdate", "true"
+            buildConfigField "boolean", "enableUpdate", "false"
             buildConfigField "String", "defaultAppUrl", "\"\""
         }
         full {
@@ -162,6 +163,7 @@ android {
             }
         }
     }
+    packaging { jniLibs { useLegacyPackaging true } }
     namespace 'top.rootu.lampa'
 }
 
@@ -278,3 +280,4 @@ dependencies {
     // did not deliver cue callbacks, so media3 is not needed here at all.
     // crosswalk latest
 }
+

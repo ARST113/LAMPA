@@ -1,33 +1,36 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
-
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
-
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
-
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
--keepclassmembers class top.rootu.lampa.AndroidJS {
-   public *;
+# Protect the native/Java boundary while allowing unused Java code to be removed.
+-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod,Exceptions
+-keep class com.cefrium.** { *; }
+-keep class org.jni_zero.** { *; }
+-keepclasseswithmembernames,includedescriptorclasses class * {
+    native <methods>;
 }
--keep class kotlin.** { *; }
--keep class kotlin.collections.** { *; }
--keep class kotlin.ranges.** { *; }
--keep class kotlin.sequences.** { *; }
--keep class kotlin.text.** { *; }
--keep class org.xwalk.core.** { *; }
+-keepclasseswithmembers,includedescriptorclasses class * {
+    @org.jni_zero.CalledByNative <methods>;
+}
+-keepclasseswithmembers,includedescriptorclasses class * {
+    @org.jni_zero.CalledByNativeUnchecked <methods>;
+}
+-keepclasseswithmembers,includedescriptorclasses class * {
+    @org.chromium.base.annotations.CalledByNative <methods>;
+}
+-keepclassmembers class top.rootu.lampa.AndroidJS { public *; }
+-keepclassmembers class * { @android.webkit.JavascriptInterface <methods>; }
+-keep class org.chromium.**.R { *; }
+-keep class org.chromium.**.R$* { *; }
+-keep class gen.**.R { *; }
+-keep class gen.**.R$* { *; }
+-keep class com.google.android.gms.common.R$* { *; }
+-keep class * extends com.google.gson.reflect.TypeToken
+-keep class com.google.gson.reflect.TypeToken
+-keepclassmembers,allowobfuscation class * {
+    @com.google.gson.annotations.SerializedName <fields>;
+}
 -dontwarn org.xwalk.core.**
--keep class j$.util.** { *; }
 -dontwarn j$.util.**
+
+# SDK fat-AAR optional integrations are not instantiated by Lampa.
+-dontwarn javax.annotation.**
+-dontwarn com.google.errorprone.annotations.**
+-dontwarn org.checkerframework.**
+
