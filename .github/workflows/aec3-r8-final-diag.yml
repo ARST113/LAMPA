@@ -1,0 +1,33 @@
+name: Final bounded R8 missing library classification
+on:
+  push:
+    branches: [optimize/aec3-r8]
+    paths: [.github/workflows/aec3-r8-final-diag.yml]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: AEC3-R8-4
+          path: missing
+          github-token: ${{ github.token }}
+          run-id: 37161178585
+      - name: Print validated library class names only
+        run: |
+          python3 - <<'PY'
+          import json,re
+          from pathlib import Path
+          classes=set()
+          for p in Path('missing').rglob('missing_rules.txt'):
+              for line in p.read_text().splitlines():
+                  m=re.fullmatch(r'-dontwarn ([A-Za-z_$][A-Za-z0-9_.$*]+)',line.strip())
+                  if m and m[1].startswith(('java.', 'javax.', 'org.chromium.', 'androidx.', 'com.google.', 'org.jetbrains.', 'kotlin.', 'j$.')):
+                      classes.add(m[1])
+          print(json.dumps({'known_library_missing_classes':sorted(classes)},indent=2))
+          PY
+
