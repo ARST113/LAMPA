@@ -1,0 +1,43 @@
+name: Inspect bounded R8 failure diagnostics
+on:
+  push:
+    branches: [optimize/aec3-r8]
+    paths: [.github/workflows/aec3-r8-diagnose.yml]
+permissions:
+  actions: read
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Read missing dependency rules and bounded failure log
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail --location -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' https://api.github.com/repos/ARST113/LAMPA/actions/artifacts/11286403127/zip -o missing.zip
+          unzip -q missing.zip -d missing
+          curl --fail --location -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' https://api.github.com/repos/ARST113/LAMPA/actions/jobs/111302602903/logs -o original.log
+          python3 - <<'PY'
+          import json, re
+          from pathlib import Path
+          text = Path('original.log').read_text(errors='replace')
+          categories = {
+              'missing_classes': 'Missing class' in text,
+              'out_of_memory': 'OutOfMemoryError' in text or 'Java heap space' in text,
+              'unsupported_proguard_option': 'Unknown option' in text or 'Unsupported option' in text,
+              'gradle_daemon_disappeared': 'daemon disappeared' in text.lower(),
+              'kotlin_compilation_error': 'Compilation error' in text,
+              'duplicate_classes': 'Duplicate class' in text,
+          }
+          approved_prefixes = ('androidx.', 'com.google.', 'javax.', 'org.jetbrains.', 'org.checkerframework.', 'kotlin.', 'org.chromium.', 'org.conscrypt.', 'com.bumptech.')
+          classes = set()
+          for path in Path('missing').rglob('missing_rules.txt'):
+              for line in path.read_text().splitlines():
+                  match = re.fullmatch(r'-dontwarn ([A-Za-z_$][A-Za-z0-9_.$*]+)', line.strip())
+                  if match and match[1].startswith(approved_prefixes):
+                      classes.add(match[1])
+          print(json.dumps({'failure_categories': categories, 'known_library_missing_classes': sorted(classes)}, indent=2))
+          PY
+
