@@ -28,10 +28,28 @@ jobs:
           unzip -p "$CEF_AAR" jni/arm64-v8a/libcef.so | sha256sum > artifacts/native-source.sha256
           python3 scripts/patch-cefrium-aar.py "$CEF_AAR"
           python3 scripts/strip-cefrium-bundled-libs.py "$CEF_AAR"
+          python3 scripts/aec3-r8-patch-consumer.py "$CEF_AAR"
       - name: Build with R8 code and resource shrinking
         run: |
           chmod +x gradlew
-          ./gradlew :app:assembleLiteRelease -PcefriumAar="$CEF_AAR" -PcefriumSha256="$CEF_SHA256" --stacktrace
+          ./gradlew :app:assembleLiteRelease -PcefriumAar="$CEF_AAR" -PcefriumSha256="$CEF_SHA256" > "$RUNNER_TEMP/r8-build.log" 2>&1
+      - name: Report bounded compiler failure categories
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import json, re, os
+          from pathlib import Path
+          p = Path(os.environ['RUNNER_TEMP']) / 'r8-build.log'
+          text = p.read_text(errors='replace') if p.exists() else ''
+          classes = sorted(set(re.findall(r'Missing class ([A-Za-z0-9_.$]+)', text)))
+          classes = [c for c in classes if c.startswith(('org.chromium.', 'com.google.', 'androidx.', 'javax.', 'org.jetbrains.', 'kotlin.'))]
+          r = {'missing_class_count': len(classes), 'missing_library_classes': classes[:200],
+               'out_of_memory': 'OutOfMemoryError' in text or 'Java heap space' in text,
+               'duplicate_classes': 'Duplicate class' in text,
+               'unsupported_rule': 'Unknown option' in text or 'Unsupported option' in text}
+          Path('artifacts/failure-summary.json').write_text(json.dumps(r, indent=2))
+          print(json.dumps(r, indent=2))
+          PY
       - name: Verify native preservation and sign separate test package
         run: |
           set -euo pipefail

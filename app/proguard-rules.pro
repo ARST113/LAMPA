@@ -34,3 +34,12 @@
 -dontwarn com.google.errorprone.annotations.**
 -dontwarn org.checkerframework.**
 
+# Missing optional Chrome UI resources in the fat SDK; never generate fake R IDs.
+-dontwarn org.chromium.chrome.browser.**.R
+-dontwarn org.chromium.chrome.browser.**.R$*
+-dontwarn com.google.android.gms.base.R$*
+-dontwarn com.google.android.gms.cast.framework.R$*
+-dontwarn com.google.ar.core.R$*
+-dontwarn org.chromium.chrome.browser.ProductConfig
+-dontwarn com.google.android.material.shape.ShapeAppearance
+
