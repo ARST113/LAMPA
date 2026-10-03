@@ -1,0 +1,21 @@
+name: Record actual public MAX15 runtime verification
+on:
+  push:
+    branches: [optimize/aec3-lossless]
+    paths: [.github/workflows/aec3-record-max15-verification.yml]
+permissions:
+  contents: write
+jobs:
+  notes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Attach public runtime evidence and update release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view aec3-max15-test-2026.10.04
+          gh release upload aec3-max15-test-2026.10.04 docs/aec3-max15-verification.json
+          gh release edit aec3-max15-test-2026.10.04 --notes-file docs/aec3-max15-release-notes.md
+
