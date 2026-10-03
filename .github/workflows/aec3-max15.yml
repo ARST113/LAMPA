@@ -1,0 +1,41 @@
+name: AEC3 MAX15 lossless compression
+on:
+  push:
+    branches: [optimize/aec3-lossless]
+    paths: [.github/workflows/aec3-max15.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compress:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      HAS_PROJECT_KEY: 'false'
+      AEC3_MAX15: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with: { distribution: temurin, java-version: '17' }
+      - name: Official Android tools and Zopfli
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "build-tools;36.0.0"
+          python3 -m pip install zopfli==0.4.0
+      - name: Download audited public source APK
+        run: |
+          curl --fail --location --retry 4 --retry-all-errors https://github.com/ARST113/LAMPA/releases/download/lampa-aec3-2026.09.28/app-lite-release.apk -o source.apk
+          echo 'dc1e3e3ea8f7ac6c92e520e604c9f74cf31fdd91fd63143a14c346a6a5a0b711  source.apk' | sha256sum --check -
+      - name: Preserve all executable payloads and compress with Zopfli15
+        run: |
+          mkdir -p artifacts
+          python3 tools/repack_aec3.py source.apk compressed-unsigned.apk --test-package --test-application-id top.rootu.lampa.cm15 --test-label AEC3.MAX15 --zopfli-iterations 15 --report artifacts/payload-report.json
+      - name: Sign separate test package and validate APK
+        run: python3 tools/sign_aec3.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AEC3-MAX15-${{ github.run_number }}
+          path: artifacts/
+          compression-level: 0
+          retention-days: 30
+          if-no-files-found: error
+

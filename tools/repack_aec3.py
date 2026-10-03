@@ -49,7 +49,7 @@ def manifest_strings(data):
     raise ValueError("AXML string pool missing")
 
 
-def patch_manifest(source, test_package=False):
+def patch_manifest(source, test_package=False, application_id="top.rootu.lampa.comp"):
     data = bytearray(source)
     strings, spans = manifest_strings(data)
     patched = 0
@@ -75,7 +75,7 @@ def patch_manifest(source, test_package=False):
         changed = 0
         for value, (start, end, encoding) in zip(strings, spans):
             if "top.rootu.lampa.aec3" in value:
-                replacement = value.replace("top.rootu.lampa.aec3", "top.rootu.lampa.comp").encode(encoding)
+                replacement = value.replace("top.rootu.lampa.aec3", application_id).encode(encoding)
                 if len(replacement) != end - start:
                     raise ValueError("Test application ID must retain string-pool lengths")
                 data[start:end] = replacement
@@ -85,11 +85,31 @@ def patch_manifest(source, test_package=False):
     return bytes(data)
 
 
-def repack(source, target, test_package=False):
+def repack(source, target, test_package=False, zopfli_iterations=0, application_id="top.rootu.lampa.comp", test_label=None):
     digest = hashlib.sha256(source.read_bytes()).hexdigest()
     if digest != SOURCE_SHA256:
         raise ValueError(f"Source SHA256 mismatch: {digest}")
     payloads = []
+    if zopfli_iterations:
+        import zopfli.zlib
+        base_compressor = zipfile._get_compressor
+
+        class ZopfliCompressor:
+            def __init__(self):
+                self.data = bytearray()
+
+            def compress(self, chunk):
+                self.data.extend(chunk)
+                return b""
+
+            def flush(self):
+                # Zlib wraps the same raw DEFLATE stream required by ZIP.
+                return zopfli.zlib.compress(bytes(self.data), numiterations=zopfli_iterations)[2:-4]
+
+        def compressor(method, level=None):
+            return ZopfliCompressor() if level == 100 else base_compressor(method, level)
+
+        zipfile._get_compressor = compressor
     with zipfile.ZipFile(source) as src, zipfile.ZipFile(target, "w", allowZip64=False) as dst:
         for original in src.infolist():
             name = original.filename
@@ -98,19 +118,27 @@ def repack(source, target, test_package=False):
             payload = src.read(name)
             before_sha = hashlib.sha256(payload).hexdigest()
             if name == "AndroidManifest.xml":
-                payload = patch_manifest(payload, test_package)
+                payload = patch_manifest(payload, test_package, application_id)
+            if name == "resources.arsc" and test_label:
+                for encoding in ("utf-8", "utf-16le"):
+                    before, after = "Lampa.AEC3".encode(encoding), test_label.encode(encoding)
+                    if len(before) != len(after):
+                        raise ValueError("Test label must retain resource string-pool lengths")
+                    payload = payload.replace(before, after)
             info = zipfile.ZipInfo(name, original.date_time)
             info.external_attr = original.external_attr
             info.create_system = original.create_system
             info.compress_type = original.compress_type
-            if re.fullmatch(r"classes\d*\.dex", name) or name.startswith("lib/") and name.endswith(".so"):
+            large_code = re.fullmatch(r"classes\d*\.dex", name) or name.startswith("lib/") and name.endswith(".so")
+            if large_code:
                 info.compress_type = zipfile.ZIP_DEFLATED
             # Retain STORED assets used through AssetManager.openFd and resource table.
             if info.compress_type == zipfile.ZIP_STORED:
                 position = dst.fp.tell() + 30 + len(name.encode("utf-8"))
                 padding = (-(position + 4)) % 4
                 info.extra = struct.pack("<HH", 0xD935, padding) + bytes(padding)
-            dst.writestr(info, payload, compresslevel=9)
+            print(f"Compressing {name} ({len(payload)} bytes)", flush=True) if large_code else None
+            dst.writestr(info, payload, compresslevel=100 if large_code and zopfli_iterations else 9)
             payloads.append({"name": name, "size": len(payload), "source_sha256": before_sha,
                              "sha256": hashlib.sha256(payload).hexdigest(), "method": info.compress_type})
     with zipfile.ZipFile(target) as result:
@@ -118,7 +146,7 @@ def repack(source, target, test_package=False):
         for item in payloads:
             payload = result.read(item["name"])
             assert hashlib.sha256(payload).hexdigest() == item["sha256"]
-            if item["name"] != "AndroidManifest.xml":
+            if item["name"] not in (["AndroidManifest.xml", "resources.arsc"] if test_label else ["AndroidManifest.xml"]):
                 assert item["source_sha256"] == item["sha256"]
             entry = result.getinfo(item["name"])
             if entry.compress_type == zipfile.ZIP_STORED:
@@ -132,8 +160,8 @@ def repack(source, target, test_package=False):
     return {"source_sha256": digest, "source_bytes": source.stat().st_size,
             "unsigned_bytes": target.stat().st_size,
             "unsigned_sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
-            "package": "top.rootu.lampa.comp" if test_package else "top.rootu.lampa.aec3",
-            "extractNativeLibs": True, "compression": "DEFLATE level 9",
+            "package": application_id if test_package else "top.rootu.lampa.aec3",
+            "extractNativeLibs": True, "compression": f"Zopfli {zopfli_iterations} iterations" if zopfli_iterations else "DEFLATE level 9",
             "payload_verification": "all executable payloads identical; manifest packaging boolean only",
             "entries": payloads}
 
@@ -144,8 +172,11 @@ def main():
     parser.add_argument("target", type=Path)
     parser.add_argument("--test-package", action="store_true")
     parser.add_argument("--report", type=Path)
+    parser.add_argument("--zopfli-iterations", type=int, default=0)
+    parser.add_argument("--test-application-id", choices=["top.rootu.lampa.comp", "top.rootu.lampa.cm15"], default="top.rootu.lampa.comp")
+    parser.add_argument("--test-label")
     args = parser.parse_args()
-    report = repack(args.source, args.target, args.test_package)
+    report = repack(args.source, args.target, args.test_package, args.zopfli_iterations, args.test_application_id, args.test_label)
     if args.report:
         args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps({key: value for key, value in report.items() if key != "entries"}, ensure_ascii=False, indent=2))
