@@ -43,3 +43,7 @@
 -dontwarn org.chromium.chrome.browser.ProductConfig
 -dontwarn com.google.android.material.shape.ShapeAppearance
 
+# The SDK contains only a whitelist of generated Chromium R packages.
+-dontwarn org.chromium.**.R
+-dontwarn org.chromium.**.R$*
+
